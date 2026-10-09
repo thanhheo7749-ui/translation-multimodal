@@ -1,0 +1,11 @@
+{
+  "source": "NVIDIA video, first 40 seconds; previous ASR output, not human-verified transcript",
+  "cases": [
+    {"id": "nvidia_01", "text": "My relationship with you started here."},
+    {"id": "nvidia_02", "text": "And many of you, many of you, many of my friends and partners here in Taiwan, your companies started here."},
+    {"id": "nvidia_03", "text": "This is, in a lot of ways, the beginning of the modern computer industry, 40 years now."},
+    {"id": "nvidia_04", "text": "And it is 33 years old."},
+    {"id": "nvidia_05", "text": "The PC industry was already starting to get the Windows 1 and Windows 2 and..."},
+    {"id": "nvidia_06", "text": "Apple 1 and Apple 2, and by the time that we came along, Windows 3.1."}
+  ]
+}

@@ -1,0 +1,47 @@
+TRƯỜNG ĐẠI HỌC CÔNG NGHỆ TP. HCMKHOA CÔNG NGHỆ THÔNG TIN
+KHOA/VIỆN Công Nghệ Phần Mềm
+CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+	Độc lập – Tự do – Hạnh phúc	
+TP. Hồ Chí Minh, ngày 6  tháng 10  năm 2026
+
+BẢN ĐĂNG KÝ ĐỀ TÀI SINH VIÊN NGHIÊN CỨU KHOA HỌC
+ NĂM HỌC 2026 - 2027 
+
+
+
+TÊN ĐỀ TÀISINH VIÊN/NHÓM SINH VIÊN
+(Không quá 05 người)GIẢNG VIÊN
+HƯỚNG DẪNNỘI DUNG NGHIÊN CỨUSẢN PHẨM DỰ KIẾNHỌ VÀ TÊNMSSVLỚPĐIỆN THOẠIEMAILHệ thống dịch video trực tuyến Anh – Việt thời gian thực dựa trên cơ chế thu nhận ngữ cảnh đa phương thức thích ứng(Adaptive Multimodal Evidence Acquisition for Real-Time Online Video Translation)Tạ Hoàng Thành238060205123DTHB70349889985thanhhoangk25@gmail.comThS. Nguyễn Đình Ánh(Khoa CNTT)1. Cơ sở lý thuyết & Mô hình hóa bài toán: Khảo sát các phương pháp dịch trực tiếp (SimST) và dịch đa phương thức. Phân tích điểm nghẽn độ trễ/chi phí của Always-Multimodal và lỗi mất ngữ cảnh của Audio-Only. Xác lập bài toán tối ưu hóa đa mục tiêu: Tối đa chất lượng dịch dưới ràng buộc trần trễ cabin (< 1.500ms) và VRAM máy trạm (RTX 3050 <= 3.8GB).
+2. Xây dựng bộ dữ liệu kiểm chuẩn (Benchmark Dataset): Thu thập, chuẩn hóa 150 video bài giảng/thuyết trình công nghệ kèm slide biểu đồ. Gán nhãn chuyên gia về mức độ phụ thuộc ngữ cảnh thị giác (Visual Necessity) và bản dịch tham chiếu chuẩn tiếng Việt.
+3. Phát triển Module Nhận dạng tiếng nói luồng (Streaming ASR): Tối ưu hóa Faster-Whisper (INT8/FP16 CTranslate2) trên audio chunks 250-300ms đạt RTF <= 0.1 (nhanh gấp 10x thời gian thực). Tích hợp thuật toán khử trùng lặp và làm sạch nhiễu khẩu ngữ (Disfluency Cleaning).
+4. Xây dựng Module Thị giác & Bộ nhớ đệm chủ động (Visual Memory): Phát triển thuật toán phát hiện chuyển slide tự động (Slide Transition Detector) bằng tương quan biểu đồ màu (< 2ms trên CPU). Tích hợp RapidOCR ONNX bóc tách thực thể và lưu đệm chủ động vào RAM, đưa trễ tra cứu về xấp xỉ 0ms khi đang dịch.
+5. Phát triển Bộ điều khiển thích ứng (Adaptive Policy Controller): Thiết kế không gian quyết định (Translate Now, Acquire Visual, Revise Previous). Phát hiện từ chỉ định, liên kết thực thể slide và cơ chế xuất bản 2 tầng: hiển thị nháp tức thì (< 350ms) kết hợp tự động sửa câu trước khi gặp liên từ/đại từ nối.
+6. Tích hợp Translation Engine với Fusion Prompt: Thiết kế Fusion Prompt tiêm ngữ cảnh slide vào LLM (Qwen2.5 / Gemini) để bảo toàn chuẩn xác thuật ngữ kỹ thuật, thương hiệu (OPENSHELL, DeepSeek, Qwen...). Cài đặt cơ chế ngắt cứng hạn chót (Hard Deadline Fallback) chống nghẽn stream.
+7. Thực nghiệm đối chứng & Đánh giá khoa học: Đo đạc đối chứng đa chiều với 2 baseline (Audio-Only và Always-Multimodal) trên các metric chuẩn quốc tế: BLEU, COMET, Average Lagging (AL) và mức tiết kiệm tài nguyên VRAM/GPU.
+8. Đóng gói hệ thống Web Studio & Hoàn thiện công bố: Triển khai ứng dụng hoàn chỉnh kết hợp WebSocket full-duplex, bảng điều khiển phụ đề song ngữ và thanh giám sát độ trễ phần cứng. Hoàn thiện báo cáo tổng kết NCKH cấp Trường và 01 bản thảo bài báo khoa học.1. Sản phẩm ứng dụng: 01 Hệ thống phần mềm Web Studio dịch video trực tuyến Anh - Việt thời gian thực với phụ đề thích ứng 2 lớp, bảng điều khiển phân đoạn song ngữ và thanh giám sát phần cứng.
+2. Bộ mã nguồn (Source Code): Toàn bộ mã nguồn hoàn chỉnh của 4 module: Streaming ASR, Vision OCR Pipeline, Adaptive Policy Controller và Translation Engine, có tài liệu hướng dẫn triển khai.
+3. Sản phẩm dữ liệu (Dataset): 01 Bộ dữ liệu kiểm chuẩn (Benchmark) gồm 150 video clip bài giảng/hội thảo có gán nhãn sự cần thiết của thị giác và bản dịch tham chiếu chuẩn.
+4. Sản phẩm khoa học: 01 Báo cáo tổng kết đề tài NCKH sinh viên cấp Trường đầy đủ quy chuẩn; 01 Bản thảo bài báo khoa học định hướng công bố trên Kỷ yếu Hội nghị/Tạp chí chuyên ngành uy tín.
+GIẢNG VIÊN HƯỚNG DẪN
+ký và ghi rõ họ tênSINH VIÊN CHỊU TRÁCH NHIỆM CHÍNH 
+(ký và ghi rõ họ tên)
+
+
+
+TRƯỞNG KHOA/VIỆN
+(ký và ghi rõ họ tên)
+
+
+
+
+
+
+
+
+
+
+
+                                                                                 BM03/QT02/KHCN
+
+
+

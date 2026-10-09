@@ -1,0 +1,64 @@
+{
+  "experiment_id": "EXP-003",
+  "baseline": [
+    {
+      "id": 1,
+      "en": "My relationship with you started here and many of you many of you many of my friends and partners here in Taiwan",
+      "vi_isolated": "Mối quan hệ của tôi với các bạn bắt đầu từ đây và nhiều người trong số các bạn, nhiều bạn bè và đối tác của tôi ở Đài Loan",
+      "latency_ms": 1436.0
+    },
+    {
+      "id": 2,
+      "en": "Your companies started here",
+      "vi_isolated": "Công ty của bạn bắt đầu ở đây",
+      "latency_ms": 1023.4
+    },
+    {
+      "id": 3,
+      "en": "This is in a lot of ways the beginning of the modern computer industry 40 years now",
+      "vi_isolated": "Về nhiều mặt, đây là sự khởi đầu của ngành công nghiệp máy tính hiện đại sau 40 năm",
+      "latency_ms": 1433.4
+    },
+    {
+      "id": 4,
+      "en": "And it is 33 years old",
+      "vi_isolated": "Và nó đã 33 tuổi",
+      "latency_ms": 1127.7
+    },
+    {
+      "id": 5,
+      "en": "The PC industry was already starting to get the people",
+      "vi_isolated": "Ngành công nghiệp PC đã bắt đầu có được con người",
+      "latency_ms": 1120.6
+    }
+  ],
+  "adaptive": [
+    {
+      "id": 1,
+      "status": "PROVISIONAL_COMMITTED",
+      "first_pass_vi": "Mối quan hệ của tôi với các bạn bắt đầu từ đây và nhiều người trong số các bạn, nhiều bạn bè và đối tác của tôi ở Đài Loan"
+    },
+    {
+      "id": 2,
+      "status": "PROVISIONAL_COMMITTED",
+      "first_pass_vi": "Công ty của bạn bắt đầu ở đây"
+    },
+    {
+      "id": 3,
+      "status": "PROVISIONAL_COMMITTED",
+      "first_pass_vi": "Về nhiều mặt, đây là sự khởi đầu của ngành công nghiệp máy tính hiện đại sau 40 năm"
+    },
+    {
+      "id": 4,
+      "status": "REVISED_WITH_PREVIOUS",
+      "trigger_word": "and",
+      "combined_en": "This is in a lot of ways the beginning of the modern computer industry 40 years now. And it is 33 years old",
+      "revised_vi": "Về nhiều mặt, đây là sự khởi đầu của ngành công nghiệp máy tính hiện đại sau 40 năm. Và nó đã 33 tuổi"
+    },
+    {
+      "id": 5,
+      "status": "PROVISIONAL_COMMITTED",
+      "first_pass_vi": "Ngành công nghiệp PC đã bắt đầu có được con người"
+    }
+  ]
+}
