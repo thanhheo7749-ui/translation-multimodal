@@ -1,0 +1,373 @@
+{
+  "experiment_id": "EXP-004",
+  "slide_frame": "data/annotations/frame_120s.jpg",
+  "engine": "RapidOCR ONNX (PaddleOCR architecture)",
+  "metrics": {
+    "init_time_ms": 744.6,
+    "ocr_slide_latency_ms": 1933.4,
+    "budget_target_ms": 150,
+    "within_budget": false,
+    "total_entities_extracted": 15
+  },
+  "extracted_items": [
+    {
+      "text": "NVIDIA and Microsoft Reinvent PC",
+      "score": 0.94,
+      "box": [
+        [
+          427.0,
+          79.0
+        ],
+        [
+          849.0,
+          80.0
+        ],
+        [
+          849.0,
+          110.0
+        ],
+        [
+          427.0,
+          109.0
+        ]
+      ]
+    },
+    {
+      "text": "CONTEXT",
+      "score": 0.964,
+      "box": [
+        [
+          602.0,
+          199.0
+        ],
+        [
+          631.0,
+          199.0
+        ],
+        [
+          631.0,
+          209.0
+        ],
+        [
+          602.0,
+          209.0
+        ]
+      ]
+    },
+    {
+      "text": "一米",
+      "score": 0.983,
+      "box": [
+        [
+          802.0,
+          196.0
+        ],
+        [
+          945.0,
+          209.0
+        ],
+        [
+          939.0,
+          281.0
+        ],
+        [
+          795.0,
+          267.0
+        ]
+      ]
+    },
+    {
+      "text": "PROMPT",
+      "score": 0.993,
+      "box": [
+        [
+          298.0,
+          230.0
+        ],
+        [
+          357.0,
+          230.0
+        ],
+        [
+          357.0,
+          250.0
+        ],
+        [
+          298.0,
+          250.0
+        ]
+      ]
+    },
+    {
+      "text": "OPENSHELL",
+      "score": 0.985,
+      "box": [
+        [
+          480.0,
+          326.0
+        ],
+        [
+          562.0,
+          328.0
+        ],
+        [
+          562.0,
+          348.0
+        ],
+        [
+          480.0,
+          346.0
+        ]
+      ]
+    },
+    {
+      "text": "LocalLLM",
+      "score": 0.943,
+      "box": [
+        [
+          608.0,
+          379.0
+        ],
+        [
+          668.0,
+          379.0
+        ],
+        [
+          668.0,
+          395.0
+        ],
+        [
+          608.0,
+          395.0
+        ]
+      ]
+    },
+    {
+      "text": "DeepSeek",
+      "score": 0.992,
+      "box": [
+        [
+          376.0,
+          448.0
+        ],
+        [
+          426.0,
+          448.0
+        ],
+        [
+          426.0,
+          462.0
+        ],
+        [
+          376.0,
+          462.0
+        ]
+      ]
+    },
+    {
+      "text": "Gemma",
+      "score": 0.987,
+      "box": [
+        [
+          448.0,
+          446.0
+        ],
+        [
+          491.0,
+          446.0
+        ],
+        [
+          491.0,
+          463.0
+        ],
+        [
+          448.0,
+          463.0
+        ]
+      ]
+    },
+    {
+      "text": "GLM",
+      "score": 0.99,
+      "box": [
+        [
+          523.0,
+          447.0
+        ],
+        [
+          550.0,
+          447.0
+        ],
+        [
+          550.0,
+          462.0
+        ],
+        [
+          523.0,
+          462.0
+        ]
+      ]
+    },
+    {
+      "text": "GPT-OSS",
+      "score": 0.982,
+      "box": [
+        [
+          580.0,
+          446.0
+        ],
+        [
+          629.0,
+          446.0
+        ],
+        [
+          629.0,
+          463.0
+        ],
+        [
+          580.0,
+          463.0
+        ]
+      ]
+    },
+    {
+      "text": "Kimi",
+      "score": 0.975,
+      "box": [
+        [
+          660.0,
+          447.0
+        ],
+        [
+          685.0,
+          447.0
+        ],
+        [
+          685.0,
+          462.0
+        ],
+        [
+          660.0,
+          462.0
+        ]
+      ]
+    },
+    {
+      "text": "MiniMax",
+      "score": 0.988,
+      "box": [
+        [
+          717.0,
+          446.0
+        ],
+        [
+          762.0,
+          446.0
+        ],
+        [
+          762.0,
+          463.0
+        ],
+        [
+          717.0,
+          463.0
+        ]
+      ]
+    },
+    {
+      "text": "Nemotron",
+      "score": 0.986,
+      "box": [
+        [
+          783.0,
+          447.0
+        ],
+        [
+          837.0,
+          447.0
+        ],
+        [
+          837.0,
+          464.0
+        ],
+        [
+          783.0,
+          464.0
+        ]
+      ]
+    },
+    {
+      "text": "Qwen",
+      "score": 0.994,
+      "box": [
+        [
+          865.0,
+          447.0
+        ],
+        [
+          899.0,
+          447.0
+        ],
+        [
+          899.0,
+          465.0
+        ],
+        [
+          865.0,
+          465.0
+        ]
+      ]
+    },
+    {
+      "text": "WINDOWS",
+      "score": 0.985,
+      "box": [
+        [
+          611.0,
+          543.0
+        ],
+        [
+          668.0,
+          543.0
+        ],
+        [
+          668.0,
+          560.0
+        ],
+        [
+          611.0,
+          560.0
+        ]
+      ]
+    }
+  ],
+  "speech_context_injections": [
+    {
+      "speech": "Microsoft NVIDIA over the last three years, it took this long to completely reinvent how the PC is going to work",
+      "matched_entities": [
+        "NVIDIA and Microsoft Reinvent PC"
+      ],
+      "retrieval_latency_ms": 0.048,
+      "augmented_prompt": "[Visual Context: NVIDIA and Microsoft Reinvent PC] Microsoft NVIDIA over the last three years, it took this long to completely reinvent how the PC is going to work"
+    },
+    {
+      "speech": "We are running local LLM models like DeepSeek, Gemma, and Qwen",
+      "matched_entities": [
+        "NVIDIA and Microsoft Reinvent PC",
+        "DeepSeek",
+        "Gemma",
+        "Qwen"
+      ],
+      "retrieval_latency_ms": 0.021,
+      "augmented_prompt": "[Visual Context: NVIDIA and Microsoft Reinvent PC, DeepSeek, Gemma, Qwen] We are running local LLM models like DeepSeek, Gemma, and Qwen"
+    },
+    {
+      "speech": "that compute pattern called the agent is going to connect with OpenShell",
+      "matched_entities": [
+        "OPENSHELL"
+      ],
+      "retrieval_latency_ms": 0.025,
+      "augmented_prompt": "[Visual Context: OPENSHELL] that compute pattern called the agent is going to connect with OpenShell"
+    }
+  ]
+}

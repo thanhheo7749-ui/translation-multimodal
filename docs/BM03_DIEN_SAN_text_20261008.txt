@@ -1,0 +1,59 @@
+TRƯỜNG ĐẠI HỌC CÔNG NGHỆ TP. HCMKHOA CÔNG NGHỆ THÔNG TIN
+KHOA/VIỆN Công Nghệ Phần Mềm
+CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+	Độc lập – Tự do – Hạnh phúc	
+TP. Hồ Chí Minh, ngày 6  tháng 10  năm 2026
+
+BẢN ĐĂNG KÝ ĐỀ TÀI SINH VIÊN NGHIÊN CỨU KHOA HỌC
+ NĂM HỌC 2026 - 2027 
+
+
+
+TÊN ĐỀ TÀISINH VIÊN/NHÓM SINH VIÊN
+(Không quá 05 người)GIẢNG VIÊN
+HƯỚNG DẪNNỘI DUNG NGHIÊN CỨUSẢN PHẨM DỰ KIẾNHỌ VÀ TÊNMSSVLỚPĐIỆN THOẠIEMAILHệ thống dịch video trực tuyến Anh – Việt thời gian thực dựa trên cơ chế thu nhận ngữ cảnh đa phương thức thích ứng(Adaptive Multimodal Evidence Acquisition for Real-Time Online Video Translation)Tạ Hoàng Thành238060205123DTHB70349889985thanhhoangk25@gmail.comThS. Nguyễn Đình Ánh(Khoa CNTT)1. Khảo sát các phương pháp dịch đồng thời, dịch có ngữ cảnh thị giác và lựa chọn thông tin bổ trợ. Xác lập câu hỏi nghiên cứu: lựa chọn ngữ cảnh OCR thích ứng có thể giảm lượng xử lý thị giác mà vẫn duy trì chất lượng dịch phụ đề Anh–Việt trong ngân sách độ trễ xác định hay không? Phạm vi tập trung vào video bài giảng/thuyết trình có slide; không mặc định ngữ cảnh thị giác luôn hữu ích.
+
+2. Xây dựng bộ dữ liệu đánh giá gồm transcript, mốc thời gian, frame tương ứng, chữ slide được kiểm tra, bản dịch tham chiếu và nhãn mức độ hữu ích dự kiến của ngữ cảnh thị giác. Dự kiến 150–200 đoạn trích từ ít nhất 10 video/bài nói độc lập; quy mô được chốt sau thử nghiệm thăm dò và xác nhận nguồn lực. Thực hiện kiểm tra chéo một phần nhãn/reference, ghi nguồn và điều kiện sử dụng, chia tập theo nguồn để hạn chế rò rỉ dữ liệu.
+
+3. Thực hiện thử nghiệm thăm dò với ba điều kiện: transcript và ngữ cảnh câu trước; bổ sung chữ slide chép thủ công; bổ sung OCR thật trên cùng frame. Giữ nguyên engine và chỉ dẫn dịch để đánh giá giá trị của chữ slide và ảnh hưởng của lỗi OCR trước khi xây dựng chính sách thích ứng.
+
+4. Xây dựng pipeline nhận dạng lời nói, phát hiện đổi slide, OCR và cache ngữ cảnh. Cache lưu nguồn, thời điểm frame, thời điểm kết quả OCR khả dụng và thời hạn sử dụng; hệ thống không dùng thông tin tương lai trong đánh giá online. Đo riêng thời gian thu nhận/xử lý, chờ hàng đợi và tra cứu cache trên cấu hình phần cứng thực nghiệm.
+
+5. Thiết kế và đánh giá bộ điều khiển lựa chọn ngữ cảnh dựa trên dấu hiệu tham chiếu thị giác trong lời nói, độ mới của cache, thay đổi slide và ngân sách độ trễ còn lại. Chính sách quyết định dịch bằng văn bản, dùng OCR đã có hoặc yêu cầu OCR mới; có phương án dự phòng khi evidence chưa sẵn sàng. Trọng số/ngưỡng được chọn trên tập phát triển và khóa trước khi đánh giá tập kiểm tra.
+
+6. Tích hợp một engine dịch thật nhận cùng transcript và ngữ cảnh văn bản giữa các phương pháp. Quản lý phụ đề nháp/chốt; cơ chế sửa phụ đề, nếu triển khai, được đánh giá riêng về độ đúng và mức thay đổi nội dung. Không dùng đầu ra giả lập làm bằng chứng chất lượng hoặc độ trễ dịch thật.
+
+7. So sánh chính sách đề xuất với audio có cùng ngữ cảnh văn bản, OCR thường xuyên và OCR khi đổi slide; bổ sung lấy mẫu cố định hoặc đối chứng khác theo kết quả khảo sát tài liệu. Đánh giá độ đúng bởi người có năng lực Anh–Việt, lỗi thuật ngữ/thiếu ý/thêm ý và metric tự động phù hợp; đo p50/p95 độ trễ phụ đề, tỷ lệ trễ hạn, số lần OCR/dịch và tài nguyên sử dụng. Phân tích paired trên cùng đầu vào, báo số nguồn độc lập và giới hạn của kết quả; sử dụng Average Lagging khi giao thức dịch tăng dần đáp ứng điều kiện tính metric.
+
+8. Xây dựng website phục vụ dịch thuật có thể upload/replay video và giúp quan sát phụ đề (song ngữ hoặc chỉ bản dịch), có thể dịch trực tiếp trang khác bằng cách chia sẻ âm thanh, hình ảnh và nắm được ngữ cảnh đã sử dụng, trạng thái xử lý và xuất log/kết quả. Kiểm tra tính tái lập của thực nghiệm, phân tích các trường hợp OCR có ích hoặc gây hại, hoàn thiện báo cáo NCKH và bản thảo bài báo dựa trên kết quả thực tế.
+1. Một ứng dụng web thử nghiệm dịch phụ đề video bài giảng/thuyết trình Anh–Việt, hỗ trợ chạy các phương pháp đối chứng, hiển thị ngữ cảnh sử dụng và xuất kết quả. Khả năng xử lý tăng dần và giới hạn độ trễ được kiểm chứng bằng log thực nghiệm.
+
+2. Bộ mã nguồn pipeline nhận dạng lời nói, OCR/cache, bộ điều khiển lựa chọn ngữ cảnh và engine dịch; kèm cấu hình, phiên bản phụ thuộc, hướng dẫn triển khai và chạy lại thực nghiệm.
+
+3. Một bộ dữ liệu đánh giá dự kiến 150–200 đoạn trích từ ít nhất 10 video/bài nói độc lập, kèm transcript/reference được kiểm tra, nhãn ngữ cảnh thị giác, manifest và quy trình gán nhãn. Việc chia sẻ video hoặc annotation tuân theo điều kiện sử dụng của nguồn; quy mô chốt sau pilot.
+
+4. Một báo cáo tổng kết NCKH sinh viên, kèm bảng/biểu đồ so sánh chất lượng–độ trễ–chi phí, log và phân tích giới hạn; một bản thảo bài báo khoa học dự kiến trên cơ sở kết quả thu được.
+
+GIẢNG VIÊN HƯỚNG DẪN
+ký và ghi rõ họ tênSINH VIÊN CHỊU TRÁCH NHIỆM CHÍNH 
+(ký và ghi rõ họ tên)
+
+
+
+TRƯỞNG KHOA/VIỆN
+(ký và ghi rõ họ tên)
+
+
+
+
+
+
+
+
+
+
+
+                                                                                 BM03/QT02/KHCN
+
+
+

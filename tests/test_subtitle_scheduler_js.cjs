@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const {SubtitleScheduler,splitText}=require('../frontend/subtitle-scheduler.js');
+const text='Một bản dịch rất dài cần chia thành nhiều phần để có thể đọc đầy đủ trên hai dòng mà không bị xóa mất nội dung khi hiển thị.';
+const parts=splitText(text,45);assert.equal(parts.join(' '),text);assert.ok(parts.every(x=>x.length<=45));
+const events=[],s=new SubtitleScheduler({sessionId:1,onEvent:(type,fields)=>events.push({type,...fields}),maxChars:45});
+s.add({id:2,session:1,mediaStart:10,mediaEnd:12,vi:'Câu thứ hai',translationReadyAt:500});
+s.add({id:1,session:1,mediaStart:4,mediaEnd:6,vi:'Câu thứ nhất',translationReadyAt:900});
+assert.equal(s.select(3.9,1000),null,'must not show early result before source time');
+assert.equal(s.select(4.2,1100).text,'Câu thứ nhất');
+assert.equal(s.select(7,2000),null,'must not hold cue into unrelated speech');
+assert.equal(s.select(10,3000).text,'Câu thứ hai');
+s.add({id:3,session:0,mediaStart:10,mediaEnd:12,vi:'Old session',translationReadyAt:0});
+assert.equal(s.select(10.1,3100).text,'Câu thứ hai');
+s.add({id:4,session:1,mediaStart:1,mediaEnd:2,vi:'Late result',translationReadyAt:3500});
+s.select(10.2,3500);assert.ok(events.some(e=>e.type==='cue_skipped'&&e.reason==='deadline_missed'&&e.segmentId===4));
+s.add({id:5,session:1,mediaStart:20,mediaEnd:30,vi:text,translationReadyAt:0});
+const displayed=[];for(let t=20;t<30;t+=.1){const cue=s.select(t,t*1000);if(cue&&displayed.at(-1)!==cue.text)displayed.push(cue.text);}
+assert.equal(displayed.join(' '),text,'pagination must preserve the complete translation');
+assert.ok(events.some(e=>e.type==='cue_selected'&&e.segmentId===1));
+console.log('Subtitle scheduler: source timing, response reordering, complete pagination, missed cue accounting and session isolation passed.');

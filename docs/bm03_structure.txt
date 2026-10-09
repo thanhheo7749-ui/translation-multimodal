@@ -1,0 +1,72 @@
+﻿=== PARAGRAPHS ===
+[1] TRƯỜNG ĐẠI HỌC CÔNG NGHỆ TP. HCM
+[2] KHOA/VIỆN………………
+[3] 
+[4] CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+[5] Độc lập – Tự do – Hạnh phúc
+[6] 
+[7] 
+[8] 
+[9] TP. Hồ Chí Minh, ngày … tháng …  năm 2026
+[10] 
+[13] BẢN ĐĂNG KÝ ĐỀ TÀI SINH VIÊN NGHIÊN CỨU KHOA HỌC
+[14] NĂM HỌC 2026 - 2027
+[19] TÊN ĐỀ TÀI
+[20] SINH VIÊN/NHÓM SINH VIÊN
+[21] (Không quá 05 người)
+[22] GIẢNG VIÊN
+[23] HƯỚNG DẪN
+[24] NỘI DUNG NGHIÊN CỨU
+[25] SẢN PHẨM DỰ KIẾN
+[26] 
+[27] 
+[28] HỌ VÀ TÊN
+[29] MSSV
+[30] LỚP
+[31] ĐIỆN THOẠI
+[32] EMAIL
+[33] 
+[34] 
+[35] 
+[36] 
+[37] 
+[38] 
+[39] 
+[40] 
+[41] 
+[42] 
+[43] 
+[44] 
+[45] 
+[46] 
+[49] GIẢNG VIÊN HƯỚNG DẪN
+[50] (ký và ghi rõ họ tên
+[51] SINH VIÊN CHỊU TRÁCH NHIỆM CHÍNH
+[52] (ký và ghi rõ họ tên)
+[56] 
+[57] 
+[58] 
+[59] GIẢNG VIÊN HƯỚNG DẪN
+[60] (ký và ghi rõ họ tên
+[61] SINH VIÊN CHỊU TRÁCH NHIỆM CHÍNH
+[62] (ký và ghi rõ họ tên)
+[67] 
+[68] 
+[69] 
+[70] 
+[71] TRƯỞNG KHOA/VIỆN
+[72] (ký và ghi rõ họ tên)
+
+=== TABLES ===
+
+--- TABLE 1 (Rows: 2, Cols: 2) ---
+[1,1]: TRƯỜNG ĐẠI HỌC CÔNG NGHỆ TP. HCM KHOA/VIỆN……………… | [1,2]: CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM 	Độc lập – Tự do – Hạnh phúc
+[2,1]:  | [2,2]: TP. Hồ Chí Minh, ngày … tháng …  năm 2026
+
+--- TABLE 2 (Rows: 3, Cols: 9) ---
+
+
+
+
+--- TABLE 3 (Rows: 1, Cols: 2) ---
+[1,1]: GIẢNG VIÊN HƯỚNG DẪN (ký và ghi rõ họ tên  SINH VIÊN CHỊU TRÁCH NHIỆM CHÍNH  (ký và ghi rõ họ tên) | [1,2]: GIẢNG VIÊN HƯỚNG DẪN (ký và ghi rõ họ tên  SINH VIÊN CHỊU TRÁCH NHIỆM CHÍNH  (ký và ghi rõ họ tên)

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Thử dịch Anh–Việt</title>
+<style>body{font:16px system-ui;background:#10131b;color:#eef2ff;max-width:800px;margin:40px auto;padding:20px}textarea{box-sizing:border-box;width:100%;height:130px;padding:16px;background:#1b2030;color:white;border:1px solid #58677f;border-radius:8px;font:17px system-ui}button,a{display:inline-block;padding:12px 18px;border-radius:8px;margin:16px 12px 16px 0}button{background:#4f66e8;color:white;border:0;cursor:pointer}a{color:#aebdff}pre{white-space:pre-wrap;padding:20px;background:#1b2030;border-radius:8px}#config{color:#aebdff}p{line-height:1.6}</style>
+<h1>Thử dịch một câu Anh–Việt</h1>
+<p>Kiểm tra kết nối và engine dịch trước khi chạy video. Nếu request thất bại, trang hiển thị lỗi và không dùng nguyên văn tiếng Anh làm bản dịch.</p>
+<p id="config">Đang đọc cấu hình…</p>
+<label for="model">Model dịch thử</label>
+<select id="model" style="display:block;padding:10px;margin:10px 0 20px;background:#1b2030;color:white;border-radius:8px">
+<option value="gemini-3.5-flash-lite">Flash-Lite · ưu tiên tốc độ</option>
+<option value="gemini-3.8-flash">Flash · đối chiếu với model trước</option>
+</select>
+<details><summary>Chế độ đối chiếu request</summary><select id="mode" style="padding:10px;margin:10px 0"><option value="stream">Streaming từ Google · mặc định</option><option value="json">JSON · đối chiếu</option></select><p>Trang này hiển thị bản dịch hoàn chỉnh. Log streaming ghi thời điểm headers/phản hồi/text đầu tiên để tìm bước bị chậm.</p></details>
+<label for="text">Câu tiếng Anh</label>
+<textarea id="text">Your companies started here.</textarea>
+<button id="check">Kiểm tra khóa và model</button><button id="translate">Dịch thử sang tiếng Việt</button><a href="/live">Dịch tab trực tiếp</a><a href="/studio">Thử video tệp</a>
+<pre id="result">Chưa chạy phép thử.</pre>
+<p>Khóa API được cấu hình trên máy chạy server. Không nhập khóa vào trang này. Google demo chỉ kiểm tra dịch văn bản; phép thử này chưa xác nhận hiệu quả ngữ cảnh OCR.</p>
+<script>
+const config=document.getElementById('config'),result=document.getElementById('result'),button=document.getElementById('translate');
+const checkButton=document.getElementById('check');
+const modelSelect=document.getElementById('model'),modeSelect=document.getElementById('mode');
+fetch('/api/translation-status').then(r=>r.json()).then(d=>{config.textContent=`Provider: ${d.provider}${d.model?' · Model: '+d.model:''} · ${d.configured?'Đã có cấu hình; cần thử generation':'Chưa cấu hình đủ'}. ${d.note}`;if(d.model){if(!Array.from(modelSelect.options).some(o=>o.value===d.model)){const option=document.createElement('option');option.value=d.model;option.textContent=d.model;modelSelect.appendChild(option);}modelSelect.value=d.model;}if(d.build!=='2026-10-08-stream-1'){result.textContent='Server đang chạy bản cũ. Nhấn Ctrl+C tại cửa sổ server, mở lại run_studio.cmd rồi tải lại trang.';button.disabled=true;checkButton.disabled=true;}}).catch(()=>config.textContent='Không đọc được cấu hình server.');
+function showError(d){result.textContent=`Chưa thành công (${d.error_code}).\n${d.message}${d.diagnostic&&Object.keys(d.diagnostic).length?'\n\nChi tiết: '+JSON.stringify(d.diagnostic):''}`;}
+checkButton.onclick=async()=>{checkButton.disabled=true;button.disabled=true;result.textContent='Đang kiểm tra khóa và model…';try{const r=await fetch('/api/provider-check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:modelSelect.value})});const d=await r.json();if(d.status==='ok'){result.textContent=d.message;config.textContent=`Đã truy cập ${d.model} bằng khóa cấu hình. Tiếp theo bấm Dịch thử để kiểm tra tạo bản dịch.`;}else showError(d);}catch(e){result.textContent='Không kết nối được server hoặc server cũ chưa có endpoint kiểm tra. Dừng cửa sổ server rồi mở lại run_studio.cmd.';}finally{checkButton.disabled=false;button.disabled=false;}};
+button.onclick=async()=>{button.disabled=true;checkButton.disabled=true;const started=performance.now();result.textContent='Đang gửi request dịch…';const timer=setInterval(()=>{result.textContent=`Đang chờ bản dịch · ${Math.round((performance.now()-started)/1000)} giây.\nModel: ${modelSelect.value} · Chế độ: ${modeSelect.value}`;},1000);try{const r=await fetch('/api/translate-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:document.getElementById('text').value,model:modelSelect.value,mode:modeSelect.value})});const d=await r.json();clearInterval(timer);if(d.status==='ok'){result.textContent=`${d.translated_text}\n\nModel: ${d.model} · Request: ${d.latency_ms} ms\nTiming: ${JSON.stringify(d.diagnostic||{})}`;config.textContent=`Đã dịch thành công · Provider: ${d.provider} · Model: ${d.model}`;}else showError(d);}catch(e){clearInterval(timer);result.textContent='Không kết nối được server thử nghiệm.';}finally{clearInterval(timer);button.disabled=false;checkButton.disabled=false;}};
+</script></html>

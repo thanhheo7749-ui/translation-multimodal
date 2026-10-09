@@ -1,0 +1,96 @@
+{
+  "experiment": "EXP-006",
+  "provider": "mock",
+  "total_segments": 6,
+  "avg_controller_latency_ms": 0.076,
+  "avg_translation_latency_ms": 10.6,
+  "records": [
+    {
+      "segment_id": 1,
+      "original_text": "My relationship with you started here and many of you many of you many of my friends and partners here in Taiwan",
+      "cleaned_text": "My relationship with you started here and many of you many of my friends and partners here in Taiwan",
+      "translated_text": "Mối quan hệ của tôi với các bạn bắt đầu từ đây, và nhiều người trong số các bạn, nhiều đối tác của tôi tại Đài Loan.",
+      "action": "TRANSLATE_NOW",
+      "visual_grounded": false,
+      "matched_entities": [],
+      "is_revision": false,
+      "revised_segment_id": null,
+      "controller_latency_ms": 0.148,
+      "translation_latency_ms": 9.3,
+      "total_latency_ms": 9.51
+    },
+    {
+      "segment_id": 2,
+      "original_text": "Your companies started here",
+      "cleaned_text": "Your companies started here",
+      "translated_text": "Các công ty của quý vị đã khởi nguồn từ chính nơi này.",
+      "action": "TRANSLATE_NOW",
+      "visual_grounded": false,
+      "matched_entities": [],
+      "is_revision": false,
+      "revised_segment_id": null,
+      "controller_latency_ms": 0.04,
+      "translation_latency_ms": 13.93,
+      "total_latency_ms": 14.01
+    },
+    {
+      "segment_id": 3,
+      "original_text": "This is in a lot of ways the beginning of the modern computer industry 40 years now",
+      "cleaned_text": "This is in a lot of ways the beginning of the modern computer industry 40 years now",
+      "translated_text": "Theo nhiều cách, đây là điểm khởi đầu của ngành công nghiệp máy tính hiện đại cách đây 40 năm.",
+      "action": "TRANSLATE_NOW",
+      "visual_grounded": false,
+      "matched_entities": [],
+      "is_revision": false,
+      "revised_segment_id": null,
+      "controller_latency_ms": 0.135,
+      "translation_latency_ms": 12.81,
+      "total_latency_ms": 12.98
+    },
+    {
+      "segment_id": 4,
+      "original_text": "And it is 33 years old",
+      "cleaned_text": "And it is 33 years old",
+      "translated_text": "Và ngành công nghiệp này đã 33 năm tuổi.",
+      "action": "REVISE_PREVIOUS",
+      "visual_grounded": false,
+      "matched_entities": [],
+      "is_revision": true,
+      "revised_segment_id": 3,
+      "controller_latency_ms": 0.035,
+      "translation_latency_ms": 6.92,
+      "total_latency_ms": 6.99
+    },
+    {
+      "segment_id": 5,
+      "original_text": "The PC industry was already starting to get the people",
+      "cleaned_text": "The PC industry was already starting to get the people",
+      "translated_text": "Ngành công nghiệp máy tính cá nhân khi đó đã bắt đầu thu hút mọi người.",
+      "action": "TRANSLATE_NOW",
+      "visual_grounded": false,
+      "matched_entities": [],
+      "is_revision": false,
+      "revised_segment_id": null,
+      "controller_latency_ms": 0.041,
+      "translation_latency_ms": 9.99,
+      "total_latency_ms": 10.06
+    },
+    {
+      "segment_id": 6,
+      "original_text": "Microsoft NVIDIA over the last three years, it took this long to completely reinvent how the PC is going to work and connect with OpenShell",
+      "cleaned_text": "Microsoft NVIDIA over the last three years, it took this long to completely reinvent how the PC is going to work and connect with OpenShell",
+      "translated_text": "[Ngữ cảnh: NVIDIA and Microsoft Reinvent PC] NVIDIA và Microsoft hợp tác tái định nghĩa cách thức hoạt động của PC kết hợp với nền tảng OPENSHELL.",
+      "action": "TRANSLATE_NOW",
+      "visual_grounded": true,
+      "matched_entities": [
+        "NVIDIA and Microsoft Reinvent PC",
+        "OPENSHELL"
+      ],
+      "is_revision": false,
+      "revised_segment_id": null,
+      "controller_latency_ms": 0.055,
+      "translation_latency_ms": 10.62,
+      "total_latency_ms": 10.7
+    }
+  ]
+}

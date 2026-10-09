@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCKH Studio: Adaptive Multimodal Video Translation</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+  <!-- App Header (VoiceStudio WorkspaceHeader style) -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo">VT</div>
+      <div class="brand-title">
+        Video Subtitle Test Studio
+        <span class="brand-subtitle">NCKH HUTECH 2026</span>
+      </div>
+    </div>
+
+    <div class="header-badges">
+      <label class="badge-pill" style="cursor:pointer; background:rgba(59,130,246,0.18); border-color:var(--primary); color:#93c5fd;" title="Tải lên video bài giảng bất kỳ để hệ thống tự xử lý">
+        <input type="file" id="video-upload-input" accept="video/mp4,video/webm" style="display:none;">
+        📂 Tải video bài giảng lên
+      </label>
+      <div class="badge-pill status-green">
+        <span>GPU: RTX 3050 (VRAM: <span id="vram-val">233</span>MB / 6GB)</span>
+      </div>
+      <div class="badge-pill">
+        <span>ASR: Faster-Whisper</span>
+      </div>
+      <div class="badge-pill">
+        <span>Vision: RapidOCR ONNX</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Studio 3-Column Workspace -->
+  <main class="studio-grid">
+    
+    <!-- Column 1: Video Player Panel -->
+    <section class="panel-video">
+      <div class="video-container" id="video-box">
+        <video id="main-video" controls preload="metadata">
+          <source src="/api/video" type="video/mp4">
+          Trình duyệt của bạn không hỗ trợ thẻ video.
+        </video>
+
+        <!-- Floating Subtitle Overlay (Live 2-tier display) -->
+        <div class="subtitle-overlay" id="sub-overlay">
+          <div class="sub-en-draft" id="sub-en-active" style="display:none;"></div>
+          <div class="sub-vi-active" id="sub-vi-active" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- Live Voice Activity & Audio Amplitude Monitor -->
+      <div class="audio-monitor-box">
+        <div class="monitor-header">
+          <div class="vad-indicator" id="vad-badge">
+            <span class="dot"></span>
+            <span id="vad-status">VAD: CHỜ TÍN HIỆU ÂM THANH</span>
+          </div>
+          <div class="latency-indicator">
+            <span>Thời gian request dịch:</span>
+            <strong id="instant-latency">Chưa đo</strong>
+          </div>
+        </div>
+        <canvas id="audio-canvas" height="42"></canvas>
+      </div>
+
+      <div class="video-meta">
+        <div class="video-title">
+          🎬 Jensen Huang - GTC Taipei Keynote (RTX Spark & Agent Architecture)
+        </div>
+        <div class="video-clock" id="clock-display">
+          00:00.0 / 17:06.5
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 2: Bilingual Transcript Timeline (VoiceStudio dub-timeline style) -->
+    <section class="panel-timeline">
+      <div class="panel-header">
+        <h3>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h12"/></svg>
+          Phụ đề thử nghiệm · xử lý trước 35 giây đầu
+        </h3>
+        <span class="badge-pill" id="segment-count">0 Phân đoạn</span>
+      </div>
+
+      <div class="timeline-feed" id="timeline-container">
+        <!-- Rendered dynamically by app.js as speaker talks -->
+      </div>
+    </section>
+
+    <!-- Column 3: Visual Working Memory (VoiceStudio Glossary style) -->
+    <section class="panel-visual">
+      <div class="panel-header">
+        <h3>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          Bộ nhớ đệm Thị giác (Slide OCR)
+        </h3>
+      </div>
+
+      <div class="slide-preview-box">
+        <div class="slide-img-wrap">
+          <img id="slide-preview-img" src="/data/annotations/frame_120s.jpg" alt="Current Slide">
+          <div class="slide-badge" id="slide-time-badge">SLIDE @ 02:00</div>
+        </div>
+        <div class="slide-title-label" id="slide-title">
+          "NVIDIA and Microsoft Reinvent PC"
+        </div>
+      </div>
+
+      <div class="panel-header" style="border-top: 1px solid var(--border-subtle); padding: 8px 16px;">
+        <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">
+          OCR mẫu EXP-004 · chưa dùng cho bản dịch thử
+        </span>
+      </div>
+
+      <div class="entities-list-wrap" id="entities-container">
+        <!-- Entity chips rendered by app.js -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom Bar: Controls & Latency Telemetry (ElevenLabs Playbar style) -->
+  <footer class="app-playbar">
+    <div class="controls-group">
+      <button class="btn-primary" id="btn-run-live-ai">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span id="btn-ai-text">Nhận dạng và dịch 35 giây đầu</span>
+      </button>
+
+      <button class="policy-btn" id="btn-jump-slide" style="border-color: rgba(139,92,246,0.5); color: #c4b5fd;">
+        ⏩ Tua đến Slide 02:00
+      </button>
+
+      <div class="policy-toggle-wrap">
+        <button class="policy-btn" id="policy-baseline">Đối chứng chưa chạy</button>
+        <button class="policy-btn active" id="policy-adaptive">Bản dịch thử</button>
+        <a class="policy-btn" href="/translation-test" target="_blank" rel="noopener">Thử dịch một câu</a>
+      </div>
+    </div>
+
+    <!-- Live Telemetry Monitor -->
+    <div class="telemetry-group">
+      <div class="stat-item">
+        <span class="stat-label">ASR toàn đoạn</span>
+        <span class="stat-val" id="lat-asr">Chưa đo</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Tra cứu Slide RAM</span>
+        <span class="stat-val" style="color:#60a5fa;" id="lat-ocr">Chưa dùng</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Dịch thuật ngữ cảnh</span>
+        <span class="stat-val" id="lat-mt">Chưa đo</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Thời gian xử lý cả đoạn</span>
+        <span class="stat-val" style="color:#34d399;" id="lat-total">Chưa đo</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
