@@ -1146,9 +1146,26 @@ if (typeof globalThis !== 'undefined') {
   };
 }
 
+function updateCaptionPreferences() {
+  const captionsEl = el('video-captions');
+  const showEn = !!el('caption-show-en')?.checked;
+  const size = el('caption-font-size')?.value || 'medium';
+  if (captionsEl) {
+    if (typeof captionsEl.classList?.toggle === 'function') {
+      captionsEl.classList.toggle('show-en', showEn);
+    }
+    if (typeof captionsEl.setAttribute === 'function') {
+      captionsEl.setAttribute('data-size', size);
+    }
+  }
+}
+
 (async()=>{
   try{
     initSlideToggle();
+    el('caption-show-en')?.addEventListener('change', updateCaptionPreferences);
+    el('caption-font-size')?.addEventListener('change', updateCaptionPreferences);
+    updateCaptionPreferences();
     if(!navigator.mediaDevices||!window.AudioWorkletNode)throw new Error('Cần trình duyệt hỗ trợ thu âm và AudioWorklet; mở bằng Chrome trên localhost.');
     const info=await requestJSON('/api/translation-status');
     if(!info.live_audio_enabled)throw new Error('Server đang chạy bản cũ. Nhấn Ctrl+C ở cửa sổ server rồi mở lại studio.cmd.');

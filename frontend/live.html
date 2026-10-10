@@ -20,8 +20,23 @@
         <video id="demo-video" controls controlslist="nofullscreen" playsinline preload="auto" crossorigin="anonymous" src="/api/nvidia-video"></video>
         <div id="video-captions" class="video-captions" hidden><span id="caption-note"></span><p id="caption-en"></p><p id="caption-vi"></p></div>
       </div>
-      <button id="demo-start" disabled>Phát video NVIDIA và dịch</button>
-      <button id="video-fullscreen" class="secondary">Toàn màn hình kèm phụ đề</button>
+      <div class="video-actions">
+        <button id="demo-start" disabled>Phát video NVIDIA và dịch</button>
+        <button id="video-fullscreen" class="secondary">Toàn màn hình kèm phụ đề</button>
+      </div>
+      <div class="caption-display-bar">
+        <label class="caption-display-item">
+          <input type="checkbox" id="caption-show-en"> Hiện cả câu tiếng Anh gốc
+        </label>
+        <label class="caption-display-item">
+          Cỡ chữ phụ đề:
+          <select id="caption-font-size">
+            <option value="compact">Nhỏ gọn (14px)</option>
+            <option value="medium" selected>Vừa đủ nhìn (16px)</option>
+            <option value="large">Lớn (19px)</option>
+          </select>
+        </label>
+      </div>
       <p id="caption-health" class="muted">Phụ đề xuất hiện khi có kết quả; độ trễ được ghi ngay trên phụ đề.</p>
       <p class="muted">Chỉ âm thanh đã phát mới được gửi để nhận dạng và dịch. Có thể tạm dừng bằng nút trên video. Khi tua, phiên dịch dừng; bấm nút trên để bắt đầu phiên mới tại vị trí đã chọn.</p>
     </section>
