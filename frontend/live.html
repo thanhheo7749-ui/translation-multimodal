@@ -60,10 +60,13 @@
           <span id="slide-scan-indicator" class="slide-scan-indicator" style="display:none;"><span class="radar-dot"></span>Đang quét <span id="slide-frames-count" class="slide-frames-count"></span></span>
           <span id="slide-status" class="slide-badge badge-idle">Chờ hình ảnh</span>
         </div>
-        <button id="slide-toggle" class="slide-toggle-btn" type="button" aria-expanded="true" title="Thu gọn / Mở rộng">
-          <span class="toggle-text">Thu gọn</span>
-          <span class="toggle-arrow">▼</span>
-        </button>
+        <div class="slide-panel-actions">
+          <label class="slide-enable-label" title="Tắt / Bật quét OCR slide"><input type="checkbox" id="slide-enable-checkbox" checked> Quét OCR</label>
+          <button id="slide-toggle" class="slide-toggle-btn" type="button" aria-expanded="true" title="Thu gọn / Mở rộng">
+            <span class="toggle-text">Thu gọn</span>
+            <span class="toggle-arrow">▼</span>
+          </button>
+        </div>
       </div>
       <div id="slide-panel-body" class="slide-panel-body">
         <div class="slide-row">

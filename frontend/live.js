@@ -1,11 +1,11 @@
 /* Live audio capture; every ASR input is only PCM already captured by the browser. */
 const el=id=>document.getElementById(id);
-const state={ready:false,capturing:false,stopping:false,processing:false,session:0,rows:[],history:[],queue:new LiveAudioCore.BoundedQueue(3),dropped:0,stream:null,ctx:null,node:null,sourceNode:null,segmenter:null,pip:null,model:'gemini-2.5-flash',engineMode:'local',lastAsr:null,lastMt:null,lastLag:null};
+const state={ready:false,capturing:false,stopping:false,processing:false,session:0,rows:[],history:[],queue:new LiveAudioCore.BoundedQueue(3),dropped:0,stream:null,ctx:null,node:null,sourceNode:null,segmenter:null,pip:null,model:'facebook/nllb-200-distilled-600M',localModel:'facebook/nllb-200-distilled-600M',geminiModel:'gemini-3.5-flash-lite',engineMode:'local',lastAsr:null,lastMt:null,lastLag:null};
 const labels={queued:'Chờ xử lý',asr:'Đang nhận dạng',mt:'Đang dịch',ok:'Đã dịch',silence:'Không nhận được lời nói',error:'Lỗi xử lý',skipped:'Bỏ qua để bắt kịp'};
 Object.assign(state,{activeRow:null,translating:0,mtQueue:[],pendingWords:[],pendingSince:0,asrDraft:'',stabilizer:new LiveAudioCore.StableWords(),captionInvalid:false,presenter:new LiveAudioCore.CaptionPresenter()});
 state.pair=new LiveAudioCore.TranscriptPair();
 state.currentSlide=null;
-state.vision={active:false,sessionId:'0',sourceEpoch:0,frameIdCounter:0,inFlight:false,sampleTimer:null,pollTimer:null,hiddenVideo:null,videoElement:null,canvas:null,status:'NO_FRAME'};
+state.vision={active:false,enabled:true,sessionId:'0',sourceEpoch:0,frameIdCounter:0,inFlight:false,sampleTimer:null,pollTimer:null,hiddenVideo:null,videoElement:null,canvas:null,status:'NO_FRAME'};
 function setSafeText(idOrEl, value) {
   const node = typeof idOrEl === 'string' ? el(idOrEl) : idOrEl;
   if (!node) return;
@@ -123,8 +123,14 @@ function renderSlideInspector() {
   let titleText = 'Chưa phát hiện slide';
   let entities = [];
 
+  const isEnabled = state.vision?.enabled !== false;
   const isMic = state.capturing && state.kind === 'mic';
-  if (isMic) {
+  if (!isEnabled) {
+    statusText = 'Đã tắt quét';
+    statusClass = 'slide-badge badge-idle';
+    titleText = 'Đã tắt tính năng quét slide (tiết kiệm CPU). Bật lại ở mục "Quét OCR" góc trên để tiếp tục nhận diện slide.';
+    entities = [];
+  } else if (isMic) {
     statusText = 'OCR cần nguồn hình ảnh';
     statusClass = 'slide-badge badge-mic';
     titleText = 'Chế độ Micro: OCR cần nguồn hình ảnh (Chia sẻ Tab hoặc Video).';
@@ -186,7 +192,7 @@ function renderSlideInspector() {
 
   const scanIndicator = el('slide-scan-indicator');
   if (scanIndicator) {
-    const isScanning = state.capturing && state.vision && state.vision.active;
+    const isScanning = state.capturing && state.vision && state.vision.active && isEnabled;
     if (isScanning) {
       scanIndicator.style.display = 'inline-flex';
       const frameCount = state.vision.frameIdCounter || 0;
@@ -200,20 +206,37 @@ function renderSlideInspector() {
 
 function initSlideToggle() {
   const toggleBtn = el('slide-toggle');
-  if (!toggleBtn) return;
-  toggleBtn.onclick = () => {
-    const body = el('slide-panel-body');
-    if (!body) return;
-    const isCollapsed = String(body.className || '').includes('is-collapsed');
-    body.className = isCollapsed ? 'slide-panel-body' : 'slide-panel-body is-collapsed';
-    if (typeof toggleBtn.setAttribute === 'function') {
-      toggleBtn.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
-    }
-    const txt = typeof toggleBtn.querySelector === 'function' ? toggleBtn.querySelector('.toggle-text') : null;
-    const arrow = typeof toggleBtn.querySelector === 'function' ? toggleBtn.querySelector('.toggle-arrow') : null;
-    if (txt) txt.textContent = isCollapsed ? 'Thu gọn' : 'Mở rộng';
-    if (arrow) arrow.textContent = isCollapsed ? '▼' : '▶';
-  };
+  if (toggleBtn) {
+    toggleBtn.onclick = () => {
+      const body = el('slide-panel-body');
+      if (!body) return;
+      const isCollapsed = String(body.className || '').includes('is-collapsed');
+      body.className = isCollapsed ? 'slide-panel-body' : 'slide-panel-body is-collapsed';
+      if (typeof toggleBtn.setAttribute === 'function') {
+        toggleBtn.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+      }
+      const txt = typeof toggleBtn.querySelector === 'function' ? toggleBtn.querySelector('.toggle-text') : null;
+      const arrow = typeof toggleBtn.querySelector === 'function' ? toggleBtn.querySelector('.toggle-arrow') : null;
+      if (txt) txt.textContent = isCollapsed ? 'Thu gọn' : 'Mở rộng';
+      if (arrow) arrow.textContent = isCollapsed ? '▼' : '▶';
+    };
+  }
+
+  const enableCheckbox = el('slide-enable-checkbox');
+  if (enableCheckbox) {
+    enableCheckbox.addEventListener('change', e => {
+      if (state.vision) {
+        state.vision.enabled = e.target.checked;
+        if (!state.vision.enabled) {
+          state.currentSlide = null;
+          state.vision.status = 'DISABLED';
+        } else {
+          state.vision.status = 'NO_FRAME';
+        }
+        renderSlideInspector();
+      }
+    });
+  }
 }
 
 function renderVideoCaption(){
@@ -527,7 +550,7 @@ async function executeRowTranslation(row) {
           text: text,
           previous_context: context,
           provider: 'local',
-          model: state.model,
+          model: state.localModel || 'facebook/nllb-200-distilled-600M',
           mode: 'stream',
           source_epoch: sourceEpoch,
           segment_audio_start_ms: segStartMs,
@@ -559,7 +582,7 @@ async function executeRowTranslation(row) {
           text: text,
           previous_context: context,
           provider: 'local',
-          model: state.model,
+          model: state.localModel || 'facebook/nllb-200-distilled-600M',
           mode: 'stream',
           source_epoch: sourceEpoch,
           segment_audio_start_ms: segStartMs,
@@ -596,7 +619,7 @@ async function executeRowTranslation(row) {
           text: text,
           previous_context: context,
           provider: 'gemini',
-          model: state.model,
+          model: state.geminiModel || 'gemini-3.5-flash-lite',
           mode: 'stream',
           source_epoch: sourceEpoch,
           segment_audio_start_ms: segStartMs,
@@ -658,7 +681,7 @@ async function polishRowWithGemini(row) {
         initial_translation: row.vi || '',
         previous_context: context,
         provider: 'gemini',
-        model: state.model,
+        model: state.geminiModel || 'gemini-3.5-flash-lite',
         mode: 'stream',
         source_epoch: sourceEpoch,
         segment_audio_start_ms: segStartMs,
@@ -729,7 +752,7 @@ async function processQueue(){
   }
 }
 async function sampleAndSendFrame() {
-  if (!state.capturing || !state.vision || !state.vision.active) return;
+  if (!state.capturing || !state.vision || !state.vision.active || state.vision.enabled === false) return;
   const video = state.vision.videoElement;
   if (!video || video.paused || video.ended || video.seeking) return;
   if (video.readyState !== undefined && video.readyState < 2) return;
@@ -818,7 +841,7 @@ async function sampleAndSendFrame() {
 }
 
 async function pollVisionResult() {
-  if (!state.capturing || !state.vision || !state.vision.active) return;
+  if (!state.capturing || !state.vision || !state.vision.active || state.vision.enabled === false) return;
   const session = state.session;
   const epoch = state.vision.sourceEpoch;
 
@@ -1077,7 +1100,11 @@ async function openPip(){
   }catch(e){error(e.message);}
 }
 el('share').onclick=()=>startCapture('tab');el('mic').onclick=()=>startCapture('mic');el('stop').onclick=()=>stopCapture();el('pip').onclick=()=>openPip();
-el('engine-mode')?.addEventListener('change',e=>{state.engineMode=e.target.value;render();});
+el('engine-mode')?.addEventListener('change',e=>{
+  state.engineMode=e.target.value;
+  state.model=(state.engineMode==='local'?state.localModel:state.geminiModel);
+  render();
+});
 el('demo-start').onclick=async()=>{
   const video=el('demo-video');
   if(video.ended)video.currentTime=0;
@@ -1185,7 +1212,10 @@ function updateCaptionPreferences() {
     if(!info.live_audio_enabled)throw new Error('Server đang chạy bản cũ. Nhấn Ctrl+C ở cửa sổ server rồi mở lại studio.cmd.');
     if(!info.incremental_asr_enabled)throw new Error('Cần khởi động lại server để bật ASR tăng dần: Ctrl+C rồi mở studio.cmd.');
     if(!info.configured)throw new Error('Server chưa cấu hình provider/khóa dịch. Chạy studio.cmd để dùng local hoặc studio.cmd gemini để nhập khóa.');
-    state.model=info.model||state.model;el('config').textContent=`Provider: ${info.provider} · Model: ${info.model||'text demo'} · ASR local · OCR slide sẵn sàng`;
+    state.localModel = info.local_model || 'facebook/nllb-200-distilled-600M';
+    state.geminiModel = info.gemini_model || (info.provider === 'gemini' ? (info.model || 'gemini-3.5-flash-lite') : 'gemini-3.5-flash-lite');
+    state.model = (state.engineMode === 'local' ? state.localModel : state.geminiModel);
+    el('config').textContent=`Provider: ${info.provider} · Model: ${info.model||'text demo'} · ASR local · OCR slide sẵn sàng`;
     el('state').textContent='Đang khởi động ASR local…';render();
     try{await requestJSON('/api/live/warmup',{method:'POST'});}catch(wErr){console.warn('Warmup non-blocking:',wErr);}
     state.ready=true;el('state').textContent='Sẵn sàng phát video hoặc chia sẻ tab';render();
