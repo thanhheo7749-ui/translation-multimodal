@@ -41,12 +41,23 @@
       <p class="muted">Chỉ âm thanh đã phát mới được gửi để nhận dạng và dịch. Có thể tạm dừng bằng nút trên video. Khi tua, phiên dịch dừng; bấm nút trên để bắt đầu phiên mới tại vị trí đã chọn.</p>
     </section>
 
+    <div class="notice"><strong id="state">Đang chuẩn bị…</strong><span id="source">Chọn tab Chrome và bật “Share tab audio”.</span><div class="meter"><div id="level"></div></div><span id="capture-clock">Đã thu 0,0 giây</span></div>
+    <p id="config" class="muted">Đang đọc cấu hình server…</p>
+    <p id="error" role="alert"></p>
+    <p id="asr-draft" class="muted">Nhận dạng nháp: đang chờ âm thanh.</p>
+    <section class="current"><div><span class="eyebrow">Lời nói gốc</span><p id="current-en">Chưa có lời nói.</p></div><div><span class="eyebrow">Bản dịch tiếng Việt</span><p id="current-vi">Bản dịch sẽ xuất hiện tại đây.</p></div><span id="current-status" class="muted"></span></section>
+    <section class="metrics"><div><span>Hàng đợi</span><strong id="queue">0 đoạn</strong></div><div><span>ASR gần nhất</span><strong id="asr">Chưa đo</strong></div><div><span>Dịch gần nhất</span><strong id="mt">Chưa đo</strong></div><div><span>Trễ sau cuối đoạn thu *</span><strong id="lag">Chưa đo</strong></div><div><span>Đoạn bỏ qua</span><strong id="dropped">0</strong></div></section>
+  </div>
+
+  <!-- CỘT PHẢI: NGỮ CẢNH SLIDE & LOG DỊCH THUẬT -->
+  <aside class="sidebar-column">
     <!-- PANEL NGỮ CẢNH SLIDE (OCR) -->
     <section id="slide-panel" class="slide-panel">
       <div class="slide-panel-header">
         <div class="slide-panel-title">
           <span class="slide-icon">📊</span>
           <h3>Ngữ cảnh Slide (OCR)</h3>
+          <span id="slide-scan-indicator" class="slide-scan-indicator" style="display:none;"><span class="radar-dot"></span>Đang quét <span id="slide-frames-count" class="slide-frames-count"></span></span>
           <span id="slide-status" class="slide-badge badge-idle">Chờ hình ảnh</span>
         </div>
         <button id="slide-toggle" class="slide-toggle-btn" type="button" aria-expanded="true" title="Thu gọn / Mở rộng">
@@ -68,16 +79,6 @@
       </div>
     </section>
 
-    <div class="notice"><strong id="state">Đang chuẩn bị…</strong><span id="source">Chọn tab Chrome và bật “Share tab audio”.</span><div class="meter"><div id="level"></div></div><span id="capture-clock">Đã thu 0,0 giây</span></div>
-    <p id="config" class="muted">Đang đọc cấu hình server…</p>
-    <p id="error" role="alert"></p>
-    <p id="asr-draft" class="muted">Nhận dạng nháp: đang chờ âm thanh.</p>
-    <section class="current"><div><span class="eyebrow">Lời nói gốc</span><p id="current-en">Chưa có lời nói.</p></div><div><span class="eyebrow">Bản dịch tiếng Việt</span><p id="current-vi">Bản dịch sẽ xuất hiện tại đây.</p></div><span id="current-status" class="muted"></span></section>
-    <section class="metrics"><div><span>Hàng đợi</span><strong id="queue">0 đoạn</strong></div><div><span>ASR gần nhất</span><strong id="asr">Chưa đo</strong></div><div><span>Dịch gần nhất</span><strong id="mt">Chưa đo</strong></div><div><span>Trễ sau cuối đoạn thu *</span><strong id="lag">Chưa đo</strong></div><div><span>Đoạn bỏ qua</span><strong id="dropped">0</strong></div></section>
-  </div>
-
-  <!-- CỘT PHẢI: LOG DỊCH THUẬT & LỊCH SỬ HỘI THOẠI -->
-  <aside class="sidebar-column">
     <div class="sidebar-sticky">
       <section class="history-head">
         <div class="history-title">

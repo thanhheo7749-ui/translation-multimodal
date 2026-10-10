@@ -183,6 +183,19 @@ function renderSlideInspector() {
   if (entitiesEl) {
     renderEntityTags(entitiesEl, entities, isMic);
   }
+
+  const scanIndicator = el('slide-scan-indicator');
+  if (scanIndicator) {
+    const isScanning = state.capturing && state.vision && state.vision.active;
+    if (isScanning) {
+      scanIndicator.style.display = 'inline-flex';
+      const frameCount = state.vision.frameIdCounter || 0;
+      setSafeText('slide-frames-count', `(2 fps · ${frameCount} frames)`);
+    } else {
+      scanIndicator.style.display = 'none';
+      setSafeText('slide-frames-count', '');
+    }
+  }
 }
 
 function initSlideToggle() {
@@ -731,6 +744,7 @@ async function sampleAndSendFrame() {
   const epoch = state.vision.sourceEpoch;
   const frameId = `f_${++state.vision.frameIdCounter}`;
   const capturedClientMs = performance.now();
+  renderSlideInspector();
 
   try {
     let targetW = vw;
