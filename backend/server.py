@@ -303,6 +303,38 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 self.send_json({"status": "error", "message": f"Lỗi khi reset vision session: {e}"}, 500)
             return
 
+        # Live Vision Override/Correction Endpoint (Human-in-the-loop)
+        if url_path == "/api/live/vision/override":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                payload = {}
+                if length > 0 and (self.headers.get("Content-Type", "").startswith("application/json")):
+                    try:
+                        payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    except Exception:
+                        payload = {}
+                session_id = payload.get("session_id") or self.headers.get("X-Session-ID") or "default"
+                source_epoch = payload.get("source_epoch") or self.headers.get("X-Source-Epoch")
+                try:
+                    source_epoch = int(source_epoch) if source_epoch is not None else 0
+                except ValueError:
+                    source_epoch = 0
+                title = str(payload.get("title", "")).strip()
+                raw_entities = payload.get("entities", [])
+                if isinstance(raw_entities, str):
+                    entities = [t.strip() for t in raw_entities.split(",") if t.strip()]
+                elif isinstance(raw_entities, list):
+                    entities = raw_entities
+                else:
+                    entities = []
+
+                snap = LiveVisionService.get_instance().override_context(session_id, title, entities, source_epoch)
+                self.send_json({"status": "ok", "snapshot": snap})
+            except Exception as e:
+                logger.exception("Lỗi khi override vision context: %s", e)
+                self.send_json({"status": "error", "message": f"Lỗi khi override vision context: {e}"}, 500)
+            return
+
         if url_path == "/api/live/warmup":
             try:
                 engine = LiveWhisperEngine.get_instance()

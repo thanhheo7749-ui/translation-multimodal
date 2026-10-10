@@ -438,6 +438,56 @@ class SessionVisionState:
         snap_dict["is_stale"] = is_stale
         return snap_dict
 
+    def override_context(self, title: str, entities: List[Union[str, Dict[str, Any]]]):
+        """Allows user / human-in-the-loop to edit and correct OCR title and entities."""
+        with self.lock:
+            formatted_entities = []
+            for e in entities:
+                if isinstance(e, str):
+                    t = e.strip()
+                    if t:
+                        formatted_entities.append({"text": t, "score": 1.0, "box": []})
+                elif isinstance(e, dict):
+                    t = str(e.get("text", "")).strip()
+                    if t:
+                        formatted_entities.append({
+                            "text": t,
+                            "score": float(e.get("score", 1.0)),
+                            "box": e.get("box", [])
+                        })
+
+            if self.current_snapshot is None:
+                self.slide_counter += 1
+                self.current_snapshot = SlideSnapshot(
+                    session_id=self.session_id,
+                    source_epoch=self.source_epoch,
+                    frame_id="user_override",
+                    slide_id=self.slide_counter,
+                    slide_revision=1,
+                    status="READY",
+                    title=title.strip(),
+                    entities=formatted_entities,
+                    content_hash=compute_content_hash(formatted_entities),
+                    captured_client_ms=time.time() * 1000,
+                    available_server_ms=time.time() * 1000
+                )
+                self.history.append(self.current_snapshot)
+            else:
+                self.current_snapshot.title = title.strip()
+                self.current_snapshot.entities = formatted_entities
+                self.current_snapshot.status = "READY"
+                self.current_snapshot.content_hash = compute_content_hash(formatted_entities)
+
+            self.state = "READY"
+            self.last_frame_received_time = time.time()
+            v_entities = [VisualEntity(text=e["text"], score=e["score"], box=e["box"]) for e in formatted_entities]
+            self.visual_cache.update_slide(
+                slide_id=self.current_snapshot.slide_id,
+                title=self.current_snapshot.title,
+                entities=v_entities
+            )
+            logger.info("Session %s context overridden by user: title='%s', %d entities", self.session_id, title, len(formatted_entities))
+
     def select_visual_context(
         self,
         source_epoch: int = 0,
@@ -795,6 +845,17 @@ class LiveVisionService:
                     "is_stale": True
                 }
             return session.get_snapshot()
+
+    def override_context(
+        self,
+        session_id: str,
+        title: str,
+        entities: List[Union[str, Dict[str, Any]]],
+        source_epoch: Optional[int] = None
+    ) -> Dict[str, Any]:
+        session = self.get_session(session_id, source_epoch or 0)
+        session.override_context(title, entities)
+        return session.get_snapshot()
 
     def _dispatch_job(self, job: OCRJob):
         """Puts candidate into worker queue; drops older waiting candidate if full."""

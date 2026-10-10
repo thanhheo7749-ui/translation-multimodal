@@ -61,6 +61,7 @@
           <span id="slide-status" class="slide-badge badge-idle">Chờ hình ảnh</span>
         </div>
         <div class="slide-panel-actions">
+          <button id="slide-inspect-btn" class="slide-inspect-btn" type="button" title="Xem chi tiết & Chỉnh sửa OCR">✏️ Xem & Sửa OCR</button>
           <label class="slide-enable-label" title="Tắt / Bật quét OCR slide"><input type="checkbox" id="slide-enable-checkbox" checked> Quét OCR</label>
           <button id="slide-toggle" class="slide-toggle-btn" type="button" aria-expanded="true" title="Thu gọn / Mở rộng">
             <span class="toggle-text">Thu gọn</span>
@@ -93,6 +94,41 @@
       <div id="timeline" aria-live="polite"><p class="muted empty-note">Chưa có lịch sử. Phát âm thanh hoặc nói để xem nhật ký dịch tại đây.</p></div>
     </div>
   </aside>
+</div>
+
+<!-- MODAL XEM CHI TIẾT & CHỈNH SỬA NGỮ CẢNH OCR -->
+<div id="ocr-modal" class="ocr-modal" hidden>
+  <div class="ocr-modal-backdrop" id="ocr-modal-backdrop"></div>
+  <div class="ocr-modal-dialog">
+    <div class="ocr-modal-header">
+      <div class="ocr-modal-title">
+        <span class="modal-icon">🔍</span>
+        <h3>Chi tiết & Chỉnh sửa Ngữ cảnh Slide OCR</h3>
+      </div>
+      <button id="ocr-modal-close" class="modal-close-btn" type="button" aria-label="Đóng">&times;</button>
+    </div>
+    <div class="ocr-modal-body">
+      <div class="ocr-edit-form">
+        <label for="ocr-edit-title"><strong>Tiêu đề Slide</strong> (Hiển thị & Trao ngữ cảnh cho AI dịch):</label>
+        <input type="text" id="ocr-edit-title" class="ocr-input-text" placeholder="Nhập hoặc chỉnh sửa tiêu đề slide…">
+
+        <label for="ocr-edit-entities"><strong>Từ khóa & Thuật ngữ chuyên ngành</strong> (Cách nhau bởi dấu phẩy):</label>
+        <textarea id="ocr-edit-entities" class="ocr-textarea" rows="3" placeholder="Ví dụ: NVIDIA, Personal Computing, Windows XP…"></textarea>
+      </div>
+
+      <div class="ocr-raw-container">
+        <h4>📋 Các dòng chữ OCR đã quét được từ khung hình:</h4>
+        <div id="ocr-raw-list" class="ocr-raw-list">
+          <p class="muted">Chưa có dữ liệu chữ nào được quét.</p>
+        </div>
+      </div>
+    </div>
+    <div class="ocr-modal-footer">
+      <span id="ocr-modal-feedback" class="ocr-modal-feedback"></span>
+      <button id="ocr-modal-cancel" class="secondary" type="button">Hủy</button>
+      <button id="ocr-modal-save" class="ocr-save-btn" type="button">💾 Lưu & Cập nhật ngữ cảnh</button>
+    </div>
+  </div>
 </div>
 
 <footer><p>* Thời gian từ lúc trang nhận gói âm thanh cuối của đoạn đến khi hiển thị bản dịch; gồm chờ hàng đợi, ASR, request dịch và truyền kết quả. Chưa phải phép đo từ cuối lời nói gốc hoặc timestamp của YouTube.</p><p>Phiên này thử audio → ASR → dịch. OCR thích ứng chưa bật. Âm thanh gửi tới server local để nhận dạng; văn bản và ngữ cảnh gửi tới provider dịch. Bản xuất log chứa transcript/bản dịch của phiên, không chứa API key.</p><a href="/studio">Thử video tệp</a></footer>
