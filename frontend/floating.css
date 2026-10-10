@@ -2,7 +2,7 @@
   color-scheme: dark;
   --subtitle-size: 18px;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: rgba(12, 18, 30, 0.82);
+  background: rgba(12, 18, 30, 0.90);
   color: #f1f5f9;
 }
 * {
@@ -14,10 +14,12 @@ html, body {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: rgba(12, 18, 30, 0.82) !important;
+  background: rgba(12, 18, 30, 0.90) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   overflow: hidden;
+  text-align: left;
 }
 header, footer {
   display: flex;
@@ -51,7 +53,7 @@ button, select {
   padding: 5px 9px;
   cursor: pointer;
   backdrop-filter: blur(8px);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 button:hover {
   background: rgba(51, 65, 85, 0.95);
@@ -197,13 +199,20 @@ button:disabled {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+.pip-stage {
+  text-align: left;
+}
+
 #en {
   font-size: 16px;
   color: #94a3b8;
   margin: 6px 0 4px;
   line-height: 1.35;
+  min-height: 1.35em; /* Dành sẵn tối thiểu 1 dòng cho Tiếng Anh */
   white-space: pre-wrap;
   word-break: break-word;
+  text-align: left;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
 }
 
 #vi {
@@ -212,18 +221,21 @@ button:disabled {
   color: #6ee7b7;
   margin: 4px 0 10px;
   line-height: 1.4;
+  min-height: 2.8em; /* Dành sẵn tối thiểu 2 dòng cho Tiếng Việt */
   white-space: pre-wrap;
   word-break: break-word;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  text-align: left;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.95);
 }
 
 /* Real-time draft bar at bottom */
 #draft-bar, .draft-bar {
   flex-shrink: 0;
+  min-height: 24px; /* Dành trước chiều cao để không đẩy giật khung */
   font-size: 12px;
   color: #93c5fd;
-  background: rgba(30, 58, 138, 0.2);
-  border: 1px dashed rgba(96, 165, 250, 0.3);
+  background: rgba(30, 58, 138, 0.25);
+  border: 1px dashed rgba(96, 165, 250, 0.35);
   border-radius: 7px;
   padding: 4px 8px;
   margin: 4px 0;
@@ -232,9 +244,12 @@ button:disabled {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 #draft-bar:empty, .draft-bar:empty {
-  display: none;
+  visibility: hidden;
+  border-color: transparent;
+  background: transparent;
 }
 
 #pip-error {

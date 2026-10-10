@@ -1,5 +1,7 @@
 # Đặc tả triển khai: Phụ đề dịch trực tiếp local-first
 
+> Yêu cầu mới nhất của người dùng: ưu tiên phụ đề bám sát lời nói. Đọc [SPEC_STABLE_SUBTITLES_AND_LIVE_SLIDE_OCR.md](SPEC_STABLE_SUBTITLES_AND_LIVE_SLIDE_OCR.md) bản đã sửa. Không đóng băng câu, tăng thời gian giữ, tạo hàng đợi đọc hay làm chậm phân đoạn đang hoạt động để giảm chữ nhảy. Cho cập nhật kết quả mới hợp lệ của câu đang xem; kết quả câu cũ không kéo màn hình lùi lại. Nếu tối ưu chống nhảy làm chậm thì giữ hành vi hiện tại và tiếp tục OCR. Quyết định mới này ưu tiên các khuyến nghị khác trong spec.
+
 **Trạng thái:** Tài liệu yêu cầu triển khai  
 **Phạm vi:** Ứng dụng dịch Anh–Việt đang có trong repository này  
 **Ưu tiên:** Critical → High → Medium → hoàn thiện  
@@ -81,9 +83,9 @@ Lỗi hiệu chỉnh không xóa hoặc thay bản local. Kết thúc phiên kh�
 ### 5.1 Tách nháp khỏi đoạn đã chốt
 
 - ASR rolling snapshot tiếp tục cập nhật dòng `source_draft`.
-- Chỉ gửi dịch thức cho câu đã chốt theo ranh giới câu/cụm.
+- Giữ cơ chế phân đoạn/dịch tăng dần hiện tại đang theo kịp lời nói. Bản final gắn với cụm đã chốt; không ép mọi cập nhật phải đợi final chỉ để giảm số lần đổi chữ.
 - Không dùng điều kiện “đủ 3 từ” làm điều kiện duy nhất để chốt và dịch một câu.
-- Nếu còn cần dịch nháp để nghiên cứu, nháp phải được đánh dấu riêng, có thể thay đổi, và không được ghi đè dòng bản dịch chính thức.
+- Bản dịch nháp nếu đang được dùng vẫn được cập nhật theo tiến độ, có nhãn và ghép đúng source revision; phản hồi nháp cũ không ghi đè bản final mới.
 
 ### 5.2 Quy tắc ranh giới
 
@@ -109,7 +111,7 @@ Chỉ cung cấp ba chế độ sản phẩm rõ ràng:
 
 - Dùng NLLB local.
 - Không cần API key hoặc mạng sau khi model đã có trong cache.
-- Dịch đoạn đã chốt. Nếu UI bật bản dịch nháp, hiển thị tách biệt và giới hạn tần suất.
+- Giữ luồng dịch tăng dần/đoạn đã chốt hiện tại. Nếu có bản nháp, đánh dấu rõ; không thêm giới hạn tần suất hiển thị khiến kết quả đã sẵn sàng phải chờ.
 - Gửi duy nhất câu nguồn đến local model hiện tại; không ghi rằng local đã dùng `previous_context`.
 
 ### B. Local trước + Gemini hiệu chỉnh
@@ -181,8 +183,8 @@ Có thể giữ lịch sử ngắn nếu nó không làm giảm diện tích dò
 - Chỉ nhận phản hồi nếu `session_id` còn hiện hành và `segment_id` tồn tại.
 - Không chuyển từ đoạn N sang N−1 do phản hồi trễ.
 - Gemini chỉ được hiệu chỉnh đúng đoạn đã gửi, không làm thay đổi `source_text`.
-- Giữ cặp nguồn–đích ổn định trong khoảng ngắn để người xem đọc; không thay nội dung liên tục vì từng token hoặc biến thể nhỏ.
-- Nếu có streaming Gemini, chỉ cập nhật một vùng preview riêng hoặc gom kết quả trước khi thay; không để chuỗi tiếng Việt nhảy từng mảnh ở phụ đề chính.
+- Cập nhật cặp nguồn–đích khi có kết quả mới hợp lệ; không thêm thời gian giữ cố định hoặc hàng đợi để người xem đọc đủ câu cũ. Tránh mutation trùng, layout shift và phản hồi sai thứ tự.
+- Giữ hành vi streaming/hiển thị hiện tại nếu đang theo kịp; không thêm hiệu ứng đánh máy hoặc gom kết quả bằng timer làm chậm bản dịch đã có. Kết quả chưa hoàn tất phải được đánh dấu là nháp.
 
 ## 8. PiP, quyền trình duyệt và vòng đời capture
 
@@ -336,7 +338,7 @@ Không xóa dữ liệu model, video, kết quả benchmark hoặc tài liệu n
 ## 14. Chỉ dẫn cho AI triển khai
 
 1. Đọc file spec này và kiểm tra trạng thái repository trước khi sửa; nếu code đã khác, đối chiếu hành vi hiện tại với yêu cầu thay vì áp dụng máy móc số dòng.
-2. Triển khai từng phase; không làm phase sau khi Gate phase trước chưa đạt.
+2. Triển khai từng phase theo phụ thuộc thực tế. Riêng thử nghiệm chống nhảy: nếu làm chậm thì rollback và ghi deferred, được tiếp tục các phase nền/OCR trên renderer hiện tại theo spec bổ sung. Các gate về tính đúng, bảo mật khóa và hồi quy audio vẫn phải đạt.
 3. Trước mỗi phase, nêu file và hành vi sẽ thay đổi. Sau phase, tóm tắt thay đổi, lệnh kiểm tra và kết quả thực tế.
 4. Bổ sung hoặc sửa test có giá trị cho hành vi mới; không sửa test chỉ để che lỗi sản phẩm.
 5. Không tuyên bố đã kiểm chứng bằng Chrome thật, GPU thật hoặc dịch thật nếu chỉ chạy mock.

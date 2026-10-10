@@ -21,12 +21,18 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+import urllib.parse
+import cv2
+import numpy as np
+
 from backend.live_pipeline import LivePipelineManager
 from backend.translation.live_service import LiveTranslationService
 from backend.translation.contracts import TranslationRequest
 from backend.translation.diagnostic_log import save_attempt
 from backend.translation.nllb_engine import MODEL as LOCAL_MODEL, get_local_engine
 from backend.asr.whisper_engine import LiveWhisperEngine
+from backend.vision.live_vision_service import LiveVisionService
+
 
 if sys.platform == "win32":
     try:
@@ -73,11 +79,20 @@ def save_distillation_sample(source: str, target: str, context: str = ""):
 
 class StudioHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
     def do_HEAD(self):
         self.do_GET()
+
 
     def do_GET(self):
         global ACTIVE_VIDEO
@@ -88,6 +103,22 @@ class StudioHandler(SimpleHTTPRequestHandler):
             info["incremental_asr_enabled"] = True
             self.send_json(info)
             return
+
+        # Live Vision Slide Result Endpoint
+        if url_path == "/api/live/vision/result":
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            session_id = query.get("session_id", [""])[0] or self.headers.get("X-Session-ID") or "default"
+            epoch_param = query.get("source_epoch", [None])[0] or self.headers.get("X-Source-Epoch")
+            source_epoch = None
+            if epoch_param is not None:
+                try:
+                    source_epoch = int(epoch_param)
+                except ValueError:
+                    source_epoch = None
+            snapshot = LiveVisionService.get_instance().get_latest_result(session_id, source_epoch)
+            self.send_json(snapshot)
+            return
+
         live_files = {"/": "live.html", "/live": "live.html", "/live.js": "live.js",
             "/live-core.js": "live-core.js", "/pcm-worklet.js": "pcm-worklet.js", "/live.css": "live.css", "/floating.css": "floating.css"}
         if url_path in live_files:
@@ -174,6 +205,104 @@ class StudioHandler(SimpleHTTPRequestHandler):
         if origin and origin not in allowed_origins:
             self.send_json({"status": "error", "message": "Nguồn request không được phép."}, 403)
             return
+
+        # Live Vision Ingest Frame Endpoint
+        if url_path == "/api/live/vision/frame":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                if length == 0:
+                    self.send_json({"status": "error", "message": "Không nhận được dữ liệu frame."}, 400)
+                    return
+                if length > 2 * 1024 * 1024:
+                    remaining = length
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(remaining, 64 * 1024))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                    self.send_json({"status": "error", "message": "Frame vượt quá giới hạn 2 MiB."}, 413)
+                    return
+
+
+                raw_bytes = self.rfile.read(length)
+                if len(raw_bytes) != length:
+                    self.send_json({"status": "error", "message": "Dữ liệu frame bị ngắt quãng."}, 400)
+                    return
+
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                session_id = self.headers.get("X-Session-ID") or query.get("session_id", [""])[0] or "default"
+                
+                try:
+                    source_epoch = int(self.headers.get("X-Source-Epoch") or query.get("source_epoch", [0])[0] or 0)
+                except ValueError:
+                    source_epoch = 0
+
+                frame_id = self.headers.get("X-Frame-ID") or query.get("frame_id", [""])[0] or f"f_{int(time.time()*1000)}"
+
+                try:
+                    captured_client_ms = float(self.headers.get("X-Captured-Client-Ms") or query.get("captured_client_ms", [0.0])[0] or 0.0)
+                except ValueError:
+                    captured_client_ms = 0.0
+
+                stab_delay_raw = self.headers.get("X-Stabilization-Delay-Sec") or query.get("stabilization_delay_sec", [None])[0]
+                try:
+                    stabilization_delay_sec = float(stab_delay_raw) if stab_delay_raw is not None else 0.6
+                except ValueError:
+                    stabilization_delay_sec = 0.6
+
+                nparr = np.frombuffer(raw_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is None:
+                    self.send_json({"status": "error", "message": "Dữ liệu ảnh JPEG/PNG không hợp lệ hoặc bị lỗi giải mã."}, 400)
+                    return
+
+                h, w = frame.shape[:2]
+                if h * w > 4_000_000:
+                    self.send_json({"status": "error", "message": "Ảnh vượt quá giới hạn 4 megapixel."}, 400)
+                    return
+
+                res = LiveVisionService.get_instance().process_frame(
+                    session_id=session_id,
+                    frame=frame,
+                    frame_id=frame_id,
+                    captured_client_ms=captured_client_ms,
+                    source_epoch=source_epoch,
+                    stabilization_delay_sec=stabilization_delay_sec
+                )
+                status_code = 202 if res.get("status") in ("queued", "stabilizing") else 200
+                self.send_json(res, status_code)
+            except Exception as e:
+                logger.exception("Lỗi khi xử lý vision frame: %s", e)
+                self.send_json({"status": "error", "message": f"Lỗi hệ thống khi xử lý vision frame: {e}"}, 500)
+            return
+
+        # Live Vision Reset Session Endpoint
+        if url_path == "/api/live/vision/reset":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                payload = {}
+                if length > 0 and (self.headers.get("Content-Type", "").startswith("application/json")):
+                    try:
+                        payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    except Exception:
+                        payload = {}
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                session_id = payload.get("session_id") or self.headers.get("X-Session-ID") or query.get("session_id", [""])[0] or "default"
+                raw_epoch = payload.get("source_epoch") or self.headers.get("X-Source-Epoch") or query.get("source_epoch", [None])[0]
+                new_epoch = None
+                if raw_epoch is not None:
+                    try:
+                        new_epoch = int(raw_epoch)
+                    except ValueError:
+                        new_epoch = None
+
+                epoch = LiveVisionService.get_instance().reset_session(session_id, new_epoch)
+                self.send_json({"status": "ok", "session_id": session_id, "source_epoch": epoch})
+            except Exception as e:
+                logger.exception("Lỗi khi reset vision session: %s", e)
+                self.send_json({"status": "error", "message": f"Lỗi khi reset vision session: {e}"}, 500)
+            return
+
         if url_path == "/api/live/warmup":
             try:
                 engine = LiveWhisperEngine.get_instance()
@@ -291,6 +420,35 @@ class StudioHandler(SimpleHTTPRequestHandler):
                     self.send_json({"status": "error", "error_code": "invalid_operation", "message": "Operation không hợp lệ."}, 400)
                     return
 
+            source_epoch = payload.get("source_epoch", 0)
+            if not isinstance(source_epoch, int):
+                try:
+                    source_epoch = int(source_epoch)
+                except (ValueError, TypeError):
+                    source_epoch = 0
+
+            seg_start_ms = payload.get("segment_audio_start_ms")
+            if seg_start_ms is not None:
+                try:
+                    seg_start_ms = float(seg_start_ms)
+                except (ValueError, TypeError):
+                    seg_start_ms = None
+
+            seg_end_ms = payload.get("segment_audio_end_ms")
+            if seg_end_ms is not None:
+                try:
+                    seg_end_ms = float(seg_end_ms)
+                except (ValueError, TypeError):
+                    seg_end_ms = None
+
+            client_context_id = payload.get("visual_context_id", "")
+            if not isinstance(client_context_id, str):
+                client_context_id = ""
+
+            v_context = None
+            slide_title = ""
+            relevant_entities = []
+
             if operation == "translate_local":
                 provider = "local"
                 if model is not None and model != LOCAL_MODEL:
@@ -310,6 +468,17 @@ class StudioHandler(SimpleHTTPRequestHandler):
                     target_model = None
                 used_context = previous_context
                 used_initial_trans = initial_translation if operation == "refine_gemini" else ""
+
+                # Context Selector Phase 5: Query LiveVisionService for valid, temporally aligned visual context
+                v_context = LiveVisionService.get_instance().select_visual_context(
+                    session_id=session_id,
+                    source_epoch=source_epoch,
+                    segment_end_ms=seg_end_ms,
+                    speech_text=text
+                )
+                if v_context.get("used"):
+                    slide_title = v_context.get("slide_title", "")
+                    relevant_entities = v_context.get("relevant_entities", [])
             else:
                 provider = "google-demo"
                 target_model = None
@@ -338,10 +507,37 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 previous_context=used_context,
                 session_id=session_id,
                 segment_id=segment_id,
-                initial_translation=used_initial_trans
+                initial_translation=used_initial_trans,
+                slide_title=slide_title,
+                relevant_entities=relevant_entities,
+                visual_context_id=v_context.get("visual_context_id", "") if v_context else "",
+                source_epoch=source_epoch,
+                segment_audio_start_ms=seg_start_ms or 0.0,
+                segment_audio_end_ms=seg_end_ms or 0.0,
+                matched_entities=v_context.get("matched_entities", []) if v_context else []
             )
             result = service.translate(req)
             save_attempt(result, service.model)
+
+            # Assign and enforce visual context metadata in response
+            if v_context is not None:
+                result.visual_context_available = bool(v_context.get("available", False))
+                result.visual_context_used = bool(v_context.get("used", False))
+                result.visual_context_id = str(v_context.get("visual_context_id", ""))
+                result.visual_context_reason = str(v_context.get("reason", ""))
+                result.matched_entities = list(v_context.get("matched_entities", []))
+            elif operation == "translate_local":
+                result.visual_context_available = False
+                result.visual_context_used = False
+                result.visual_context_id = ""
+                result.visual_context_reason = "local_audio_only"
+                result.matched_entities = []
+            else:
+                result.visual_context_available = False
+                result.visual_context_used = False
+                result.visual_context_id = ""
+                result.visual_context_reason = "audio_only"
+                result.matched_entities = []
 
             if service.provider == "gemini" and result.status == "ok" and result.translated_text and os.getenv("ENABLE_DISTILLATION_LOG", "0") == "1":
                 save_distillation_sample(text, result.translated_text, used_context)

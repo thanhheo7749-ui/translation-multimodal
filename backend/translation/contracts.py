@@ -28,6 +28,36 @@ class TranslationRequest:
     session_id: str = ""
     segment_id: Optional[int] = None
     initial_translation: str = ""
+    visual_context_id: str = ""
+    source_epoch: int = 0
+    segment_audio_start_ms: float = 0.0
+    segment_audio_end_ms: float = 0.0
+    matched_entities: List[str] = field(default_factory=list)
+
+@dataclass
+class TranslationOutcome:
+    status: str
+    provider: str
+    translated_text: str = ""
+    latency_ms: float = 0
+    error_code: str = ""
+    message: str = ""
+    context_supported: bool = False
+    diagnostic: dict = field(default_factory=dict)
+    phase: str = "translation"
+    model: str = ""
+    request_id: str = ""
+    session_id: str = ""
+    segment_id: Optional[int] = None
+    visual_context_available: bool = False
+    visual_context_used: bool = False
+    visual_context_id: str = ""
+    visual_context_reason: str = ""
+    matched_entities: List[str] = field(default_factory=list)
+
+    def to_dict(self):
+        from dataclasses import asdict
+        return asdict(self)
 
 @dataclass
 class TranslationResponse:
@@ -39,3 +69,9 @@ class TranslationResponse:
     visual_grounded: bool
     is_revision: bool = False
     revised_segment_id: Optional[int] = None
+    visual_context_available: bool = False
+    visual_context_used: bool = False
+    visual_context_id: str = ""
+    visual_context_reason: str = ""
+    matched_entities: List[str] = field(default_factory=list)
+

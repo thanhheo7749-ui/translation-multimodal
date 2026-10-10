@@ -4,7 +4,17 @@ const state={ready:false,capturing:false,stopping:false,processing:false,session
 const labels={queued:'Chờ xử lý',asr:'Đang nhận dạng',mt:'Đang dịch',ok:'Đã dịch',silence:'Không nhận được lời nói',error:'Lỗi xử lý',skipped:'Bỏ qua để bắt kịp'};
 Object.assign(state,{activeRow:null,translating:0,mtQueue:[],pendingWords:[],pendingSince:0,asrDraft:'',stabilizer:new LiveAudioCore.StableWords(),captionInvalid:false,presenter:new LiveAudioCore.CaptionPresenter()});
 state.pair=new LiveAudioCore.TranscriptPair();
-function error(message){el('error').textContent=message||'';}
+state.currentSlide=null;
+state.vision={active:false,sessionId:'0',sourceEpoch:0,frameIdCounter:0,inFlight:false,sampleTimer:null,pollTimer:null,hiddenVideo:null,videoElement:null,canvas:null,status:'NO_FRAME'};
+function setSafeText(idOrEl, value) {
+  const node = typeof idOrEl === 'string' ? el(idOrEl) : idOrEl;
+  if (!node) return;
+  const str = String(value ?? '');
+  if (node.textContent !== str) {
+    node.textContent = str;
+  }
+}
+function error(message){setSafeText('error', message||'');}
 function seconds(value){return Number(value).toFixed(1).replace('.',',');}
 
 function getCardBadge(row) {
@@ -58,26 +68,171 @@ function getCardBadge(row) {
   };
 }
 
+function renderEntityTags(container, entities, isMic) {
+  if (!container) return;
+  const key = isMic
+    ? '__mic__'
+    : (entities && entities.length
+        ? entities.map(e => (typeof e === 'string' ? e : (e.text || e.label || ''))).filter(Boolean).join('|')
+        : '__empty__');
+  if (container._renderedKey === key) return;
+  container._renderedKey = key;
+
+  if (typeof container.replaceChildren === 'function') {
+    if (isMic) {
+      const tag = document.createElement('span');
+      tag.className = 'entity-badge placeholder';
+      tag.textContent = 'Không có từ khóa (chế độ micro)';
+      container.replaceChildren(tag);
+      return;
+    }
+    if (!entities || !entities.length) {
+      const tag = document.createElement('span');
+      tag.className = 'entity-badge placeholder';
+      tag.textContent = 'Chưa có từ khóa';
+      container.replaceChildren(tag);
+      return;
+    }
+    const tags = [];
+    for (const ent of entities) {
+      const text = typeof ent === 'string' ? ent : (ent.text || ent.label || '');
+      if (!text) continue;
+      const tag = document.createElement('span');
+      tag.className = 'entity-badge';
+      tag.textContent = text;
+      tags.push(tag);
+    }
+    if (!tags.length) {
+      const tag = document.createElement('span');
+      tag.className = 'entity-badge placeholder';
+      tag.textContent = 'Chưa có từ khóa';
+      tags.push(tag);
+    }
+    container.replaceChildren(...tags);
+  }
+}
+
+function renderSlideInspector() {
+  const statusEl = el('slide-status');
+  const titleEl = el('slide-title');
+  const entitiesEl = el('slide-entities');
+  if (!statusEl && !titleEl && !entitiesEl) return;
+
+  let statusText = 'Chờ hình ảnh';
+  let statusClass = 'slide-badge badge-idle';
+  let titleText = 'Chưa phát hiện slide';
+  let entities = [];
+
+  const isMic = state.capturing && state.kind === 'mic';
+  if (isMic) {
+    statusText = 'OCR cần nguồn hình ảnh';
+    statusClass = 'slide-badge badge-mic';
+    titleText = 'Chế độ Micro: OCR cần nguồn hình ảnh (Chia sẻ Tab hoặc Video).';
+  } else if (!state.capturing) {
+    statusText = 'Chờ hình ảnh';
+    statusClass = 'slide-badge badge-idle';
+    if (state.currentSlide?.title) {
+      titleText = state.currentSlide.title;
+      entities = state.currentSlide.entities || [];
+    } else {
+      titleText = 'Chưa phát hiện slide';
+    }
+  } else {
+    const snap = state.currentSlide;
+    const vStatus = state.vision?.status || 'NO_FRAME';
+    if (vStatus === 'STABILIZING') {
+      statusText = 'Đang ổn định';
+      statusClass = 'slide-badge badge-stabilizing';
+      titleText = snap?.title ? snap.title + ' (đang chuyển cảnh…)' : 'Đang ổn định khung hình…';
+      entities = snap?.entities || [];
+    } else if (vStatus === 'OCR_PENDING') {
+      statusText = 'Đang trích xuất chữ';
+      statusClass = 'slide-badge badge-stabilizing';
+      titleText = snap?.title || 'Đang trích xuất chữ…';
+      entities = snap?.entities || [];
+    } else if (snap?.status === 'READY') {
+      statusText = 'Đã trích xuất chữ';
+      statusClass = 'slide-badge badge-ready';
+      titleText = snap.title || '(Không có tiêu đề slide)';
+      entities = snap.entities || [];
+    } else if (snap?.status === 'EMPTY' || vStatus === 'EMPTY') {
+      statusText = 'Không có chữ';
+      statusClass = 'slide-badge badge-empty';
+      titleText = 'Không có chữ trên slide.';
+      entities = [];
+    } else if (vStatus === 'ERROR' || snap?.status === 'ERROR') {
+      statusText = 'Lỗi nhận dạng';
+      statusClass = 'slide-badge badge-error';
+      titleText = 'Không thể trích xuất chữ từ frame này.';
+      entities = [];
+    } else {
+      statusText = 'Chờ hình ảnh';
+      statusClass = 'slide-badge badge-idle';
+      titleText = snap?.title || 'Chưa phát hiện slide';
+      entities = snap?.entities || [];
+    }
+  }
+
+  if (statusEl) {
+    if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
+    if (statusEl.className !== statusClass) statusEl.className = statusClass;
+  }
+  if (titleEl) {
+    setSafeText(titleEl, titleText);
+  }
+  if (entitiesEl) {
+    renderEntityTags(entitiesEl, entities, isMic);
+  }
+}
+
+function initSlideToggle() {
+  const toggleBtn = el('slide-toggle');
+  if (!toggleBtn) return;
+  toggleBtn.onclick = () => {
+    const body = el('slide-panel-body');
+    if (!body) return;
+    const isCollapsed = String(body.className || '').includes('is-collapsed');
+    body.className = isCollapsed ? 'slide-panel-body' : 'slide-panel-body is-collapsed';
+    if (typeof toggleBtn.setAttribute === 'function') {
+      toggleBtn.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+    }
+    const txt = typeof toggleBtn.querySelector === 'function' ? toggleBtn.querySelector('.toggle-text') : null;
+    const arrow = typeof toggleBtn.querySelector === 'function' ? toggleBtn.querySelector('.toggle-arrow') : null;
+    if (txt) txt.textContent = isCollapsed ? 'Thu gọn' : 'Mở rộng';
+    if (arrow) arrow.textContent = isCollapsed ? '▼' : '▶';
+  };
+}
+
 function renderVideoCaption(){
-  const mediaTime=el('demo-video').currentTime;
-  const latest=state.presenter.select(state.rows,mediaTime,performance.now());
-  const visible=state.kind==='video'&&!state.captionInvalid&&latest;
-  el('video-captions').hidden=!visible;
-  el('caption-vi').textContent=visible?latest.vi:'';
-  el('caption-note').textContent=visible?`Sau lời nói ${seconds(Math.max(0,mediaTime-latest.mediaEnd))} giây`:'Đang nghe và dịch…';
-  const late=state.rows.filter(row=>row.lateForVideo).length;
-  el('caption-health').textContent=late?`${late} bản dịch trễ hơn 2,5 giây. Phụ đề có ghi độ trễ; kết quả về sau không làm quay lại câu cũ.`:'Phụ đề xuất hiện khi có kết quả, giữ tối thiểu 0,9 giây để đọc; độ trễ ghi ngay trên phụ đề.';
+  const video = el('demo-video');
+  const mediaTime = video ? (video.currentTime || 0) : 0;
+  const latest = state.presenter.select(state.rows, mediaTime, performance.now());
+  const visible = state.kind === 'video' && !state.captionInvalid && !!latest;
+  const captionsEl = el('video-captions');
+  if (captionsEl && captionsEl.hidden !== !visible) {
+    captionsEl.hidden = !visible;
+  }
+  setSafeText('caption-en', visible ? (latest.en || '') : '');
+  setSafeText('caption-vi', visible ? (latest.vi || '') : '');
+  setSafeText('caption-note', visible ? `Sau lời nói ${seconds(Math.max(0, mediaTime - latest.mediaEnd))} giây` : 'Đang nghe và dịch…');
+  const late = state.rows.filter(row => row.lateForVideo).length;
+  setSafeText('caption-health', late ? `${late} bản dịch trễ hơn 2,5 giây. Phụ đề có ghi độ trễ; kết quả về sau không làm quay lại câu cũ.` : 'Phụ đề xuất hiện khi có kết quả, giữ tối thiểu 0,9 giây để đọc; độ trễ ghi ngay trên phụ đề.');
   renderFloating();
 }
 function renderFloating(){
   if(!state.pip||state.pip.closed)return;
   const doc=state.pip.document;
   const put=(id,value)=>{const node=doc.getElementById(id);if(node&&node.textContent!==value)node.textContent=value;};
-  put('state',el('state').textContent);
+  put('state',el('state')?.textContent||'');
   const stop=doc.getElementById('stop'),share=doc.getElementById('pip-share');
-  if(stop)stop.disabled=!state.capturing||state.stopping;
-  if(share){share.hidden=state.capturing;share.disabled=!state.ready||state.processing||!!state.translating||state.stopping;}
-  put('pip-error',el('error').textContent);
+  if(stop && stop.disabled !== (!state.capturing||state.stopping)) stop.disabled=!state.capturing||state.stopping;
+  if(share){
+    const shouldHide = state.capturing;
+    if(share.hidden !== shouldHide) share.hidden = shouldHide;
+    const shouldDisable = !state.ready||state.processing||!!state.translating||state.stopping;
+    if(share.disabled !== shouldDisable) share.disabled = shouldDisable;
+  }
+  put('pip-error',el('error')?.textContent||'');
 
   const hearing=state.asrDraft||state.pendingWords.map(w=>w.text).join(' ')||'';
   put('draft-bar',hearing?`🎙️ Đang nghe: ${hearing}`:'');
@@ -93,43 +248,132 @@ function renderFloating(){
 }
 function updateControls(){
   const isCapturing = state.capturing;
-  el('share').disabled = !state.ready || state.stopping || (isCapturing && state.kind !== 'tab');
-  el('mic').disabled = !state.ready || state.stopping || (isCapturing && state.kind !== 'mic');
-  el('demo-start').disabled = !state.ready || state.stopping || (isCapturing && state.kind !== 'video');
-  el('stop').disabled = !isCapturing || state.stopping;
-  el('chunk').disabled = isCapturing;
-  el('export').disabled = !state.rows.length;
+  const setDisabled = (id, val) => {
+    const n = el(id);
+    if (n && n.disabled !== val) n.disabled = val;
+  };
+  setDisabled('share', !state.ready || state.stopping || (isCapturing && state.kind !== 'tab'));
+  setDisabled('mic', !state.ready || state.stopping || (isCapturing && state.kind !== 'mic'));
+  setDisabled('demo-start', !state.ready || state.stopping || (isCapturing && state.kind !== 'video'));
+  setDisabled('stop', !isCapturing || state.stopping);
+  setDisabled('chunk', isCapturing);
+  setDisabled('export', !state.rows.length);
 }
+
+const timelineCards = new Map();
+
+function renderTimeline() {
+  const timeline = el('timeline');
+  if (!timeline) return;
+
+  if (!state.rows.length) {
+    if (timelineCards.size > 0) {
+      timelineCards.clear();
+    }
+    if (!timeline._hasEmpty) {
+      if (typeof timeline.replaceChildren === 'function') {
+        const empty = document.createElement('p');
+        empty.className = 'muted empty-note';
+        empty.textContent = 'Chưa có lịch sử. Phát âm thanh hoặc nói để xem nhật ký dịch tại đây.';
+        timeline.replaceChildren(empty);
+      }
+      timeline._hasEmpty = true;
+    }
+    return;
+  }
+
+  if (timeline._hasEmpty) {
+    if (typeof timeline.replaceChildren === 'function') {
+      timeline.replaceChildren();
+    }
+    timeline._hasEmpty = false;
+  }
+
+  const recentRows = state.rows.slice(-80).reverse();
+  const activeIds = new Set(recentRows.map(r => r.id));
+
+  for (const [id, cached] of timelineCards.entries()) {
+    if (!activeIds.has(id)) {
+      if (typeof cached.card.remove === 'function') cached.card.remove();
+      timelineCards.delete(id);
+    }
+  }
+
+  for (let i = recentRows.length - 1; i >= 0; i--) {
+    const row = recentRows[i];
+    let cached = timelineCards.get(row.id);
+    if (!cached) {
+      const card = document.createElement('article');
+      card.id = `log-card-${row.id}`;
+      const top = document.createElement('div');
+      top.className = 'card-top';
+      const time = document.createElement('span');
+      const badge = document.createElement('span');
+      top.append(time, badge);
+      card.append(top);
+      const en = document.createElement('p');
+      en.className = 'en';
+      card.append(en);
+      const vi = document.createElement('p');
+      card.append(vi);
+      const timing = document.createElement('div');
+      timing.className = 'timing';
+      card.append(timing);
+
+      cached = { card, time, badge, en, vi, timing };
+      timelineCards.set(row.id, cached);
+
+      if (timeline.firstChild && typeof timeline.insertBefore === 'function') {
+        timeline.insertBefore(card, timeline.firstChild);
+      } else if (typeof timeline.prepend === 'function') {
+        timeline.prepend(card);
+      } else {
+        timeline.append(card);
+      }
+    }
+
+    const badgeInfo = getCardBadge(row);
+    const cardClass = 'card ' + (badgeInfo.cardClass || '');
+    if (cached.card.className !== cardClass) cached.card.className = cardClass;
+
+    const timeText = `#${row.id} · ${seconds(row.startSec)}s`;
+    if (cached.time.textContent !== timeText) cached.time.textContent = timeText;
+
+    const badgeClass = 'badge ' + (badgeInfo.badgeClass || '');
+    if (cached.badge.className !== badgeClass) cached.badge.className = badgeClass;
+    if (cached.badge.textContent !== badgeInfo.tag) cached.badge.textContent = badgeInfo.tag;
+
+    const enText = row.en || '…';
+    if (cached.en.textContent !== enText) cached.en.textContent = enText;
+
+    const viClass = row.status === 'error' ? 'error' : 'vi';
+    if (cached.vi.className !== viClass) cached.vi.className = viClass;
+    const viText = row.vi || row.message || (row.status === 'mt' ? 'Đang dịch…' : '');
+    if (cached.vi.textContent !== viText) cached.vi.textContent = viText;
+
+    const timingText = `Thu ${seconds(row.durationSec)}s${row.asrMs !== undefined ? ' · ASR ' + Math.round(row.asrMs) + 'ms' : ''}${row.mtMs !== undefined ? ' · MT ' + Math.round(row.mtMs) + 'ms' : ''}${row.lagMs !== undefined ? ' · Sau ASR ' + seconds(row.lagMs / 1000) + 's' : ''}`;
+    if (cached.timing.textContent !== timingText) cached.timing.textContent = timingText;
+  }
+}
+
 function render(){
   updateControls();
   renderVideoCaption();
-  el('queue').textContent=`ASR ${state.queue.length}${state.processing?'+1':''} · Dịch ${state.mtQueue.length} chờ + ${state.translating} chạy`;
-  el('dropped').textContent=state.dropped;
-  el('asr').textContent=state.lastAsr===null?'Chưa đo':`${Math.round(state.lastAsr)} ms`;
-  el('mt').textContent=state.lastMt===null?'Chưa đo':`${Math.round(state.lastMt)} ms`;
-  el('lag').textContent=state.lastLag===null?'Chưa đo':`${seconds(state.lastLag/1000)} giây`;
+  renderSlideInspector();
+  setSafeText('queue', `ASR ${state.queue.length}${state.processing?'+1':''} · Dịch ${state.mtQueue.length} chờ + ${state.translating} chạy`);
+  setSafeText('dropped', state.dropped);
+  setSafeText('asr', state.lastAsr===null?'Chưa đo':`${Math.round(state.lastAsr)} ms`);
+  setSafeText('mt', state.lastMt===null?'Chưa đo':`${Math.round(state.lastMt)} ms`);
+  setSafeText('lag', state.lastLag===null?'Chưa đo':`${seconds(state.lastLag/1000)} giây`);
   const current=[...state.rows].reverse().find(row=>row.en);
   const source=current?.en||'Chưa có lời nói.';
-  el('asr-draft').textContent='Nhận dạng nháp (có thể sửa): '+(state.asrDraft||'đang nghe tiếp…');
+  setSafeText('asr-draft', 'Nhận dạng nháp (có thể sửa): '+(state.asrDraft||'đang nghe tiếp…'));
   const target=current?(current.vi||(current.status==='mt'?'Đang dịch đoạn này…':current.message||'Chưa có bản dịch.')):'Bản dịch sẽ xuất hiện tại đây.';
-  el('current-en').textContent=source;el('current-vi').textContent=target;
-  el('current-status').textContent=current?`Đoạn ${current.id} · ${labels[current.status]} · mốc thu ${seconds(current.startSec)}–${seconds(current.endSec)}s`:'';
-  if(el('log-count')) el('log-count').textContent=`${state.rows.filter(r=>r.en).length} đoạn`;
-  const timeline=el('timeline');timeline.replaceChildren();
-  for(const row of state.rows.slice(-80).reverse()){
-    const badgeInfo=getCardBadge(row);
-    const card=document.createElement('article');card.className='card '+(badgeInfo.cardClass||'');
-    const top=document.createElement('div');top.className='card-top';
-    const time=document.createElement('span');time.textContent=`#${row.id} · ${seconds(row.startSec)}s`;
-    const badge=document.createElement('span');badge.className='badge '+(badgeInfo.badgeClass||'');badge.textContent=badgeInfo.tag;
-    top.append(time,badge);card.append(top);
-    const en=document.createElement('p');en.className='en';en.textContent=row.en||'…';card.append(en);
-    const vi=document.createElement('p');vi.className=row.status==='error'?'error':'vi';vi.textContent=row.vi||row.message||(row.status==='mt'?'Đang dịch…':'');card.append(vi);
-    const timing=document.createElement('div');timing.className='timing';
-    timing.textContent=`Thu ${seconds(row.durationSec)}s${row.asrMs!==undefined?' · ASR '+Math.round(row.asrMs)+'ms':''}${row.mtMs!==undefined?' · MT '+Math.round(row.mtMs)+'ms':''}${row.lagMs!==undefined?' · Sau ASR '+seconds(row.lagMs/1000)+'s':''}`;
-    card.append(timing);timeline.append(card);
-  }
-  if(!state.rows.length){const empty=document.createElement('p');empty.className='muted empty-note';empty.textContent='Chưa có lịch sử. Phát âm thanh hoặc nói để xem nhật ký dịch tại đây.';timeline.append(empty);}
+  setSafeText('current-en', source);
+  setSafeText('current-vi', target);
+  setSafeText('current-status', current?`Đoạn ${current.id} · ${labels[current.status]} · mốc thu ${seconds(current.startSec)}–${seconds(current.endSec)}s`:'');
+  setSafeText('log-count', `${state.rows.filter(r=>r.en).length} đoạn`);
+  renderTimeline();
 }
 async function requestJSON(path,options={}){
   const response=await fetch(path,options);let data;
@@ -254,6 +498,10 @@ async function executeRowTranslation(row) {
   const mode = ['local', 'hybrid', 'gemini'].includes(rawMode) ? rawMode : (state.engineMode || 'local');
   const context = state.rows.filter(r => r.id < row.id && r.en).slice(-2).map(r => r.en).join(' ').slice(-3000);
 
+  const sourceEpoch = (state.vision && Number.isInteger(state.vision.sourceEpoch)) ? state.vision.sourceEpoch : 0;
+  const segStartMs = Math.round((row.startSec || 0) * 1000);
+  const segEndMs = Math.round((row.endSec || 0) * 1000);
+
   try {
     // -------------------------------------------------------------
     // CHẾ ĐỘ 1: LOCAL (⚡ Local NLLB siêu tốc 150ms)
@@ -267,7 +515,10 @@ async function executeRowTranslation(row) {
           previous_context: context,
           provider: 'local',
           model: state.model,
-          mode: 'stream'
+          mode: 'stream',
+          source_epoch: sourceEpoch,
+          segment_audio_start_ms: segStartMs,
+          segment_audio_end_ms: segEndMs
         })
       });
       if (row.session !== state.session) return;
@@ -296,7 +547,10 @@ async function executeRowTranslation(row) {
           previous_context: context,
           provider: 'local',
           model: state.model,
-          mode: 'stream'
+          mode: 'stream',
+          source_epoch: sourceEpoch,
+          segment_audio_start_ms: segStartMs,
+          segment_audio_end_ms: segEndMs
         })
       });
       if (row.session !== state.session) return;
@@ -330,7 +584,10 @@ async function executeRowTranslation(row) {
           previous_context: context,
           provider: 'gemini',
           model: state.model,
-          mode: 'stream'
+          mode: 'stream',
+          source_epoch: sourceEpoch,
+          segment_audio_start_ms: segStartMs,
+          segment_audio_end_ms: segEndMs
         })
       });
       if (row.session !== state.session) return;
@@ -377,15 +634,22 @@ async function polishRowWithGemini(row) {
   row.isPolished = true;
   try {
     const context = state.rows.filter(r => r.id < row.id && r.en).slice(-2).map(r => r.en).join(' ').slice(-3000);
+    const sourceEpoch = (state.vision && Number.isInteger(state.vision.sourceEpoch)) ? state.vision.sourceEpoch : 0;
+    const segStartMs = Math.round((row.startSec || 0) * 1000);
+    const segEndMs = Math.round((row.endSec || 0) * 1000);
     const polished = await requestJSON('/api/translate-test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: row.en,
+        initial_translation: row.vi || '',
         previous_context: context,
         provider: 'gemini',
         model: state.model,
-        mode: 'stream'
+        mode: 'stream',
+        source_epoch: sourceEpoch,
+        segment_audio_start_ms: segStartMs,
+        segment_audio_end_ms: segEndMs
       })
     });
     if (row.session !== state.session) return;
@@ -393,20 +657,31 @@ async function polishRowWithGemini(row) {
     row.isDraft = false;
     row.polishedMs = polished.latency_ms;
     row.provider = 'gemini';
-    render();
+
+    // Gate Phase 5 & Section 3: If user has already moved to a newer segment (row.id < state.activeRow?.id),
+    // update timeline DOM card, but do NOT pull video caption/floating display back to the old row!
+    const isPastSegment = Boolean(state.activeRow && row.id < state.activeRow.id);
+    if (isPastSegment) {
+      renderTimeline();
+    } else {
+      render();
+    }
   } catch (err) {
     console.warn('Gemini polish fallback:', err);
     row.isDraft = false;
-    render();
+    if (state.activeRow && row.id < state.activeRow.id) {
+      renderTimeline();
+    } else {
+      render();
+    }
   } finally {
     finishStatus();
-    render();
   }
 }
 
 function finishStatus(){
   if(!state.capturing&&!state.stopping&&!state.processing&&!state.translating&&!state.queue.length&&!state.pendingWords.length&&(!state.activeRow||state.activeRow.isFinal)){
-    el('state').textContent='Đã dừng thu · xử lý xong';
+    setSafeText('state', 'Đã dừng thu · xử lý xong');
   }
 }
 
@@ -440,13 +715,205 @@ async function processQueue(){
     render();
   }
 }
+async function sampleAndSendFrame() {
+  if (!state.capturing || !state.vision || !state.vision.active) return;
+  const video = state.vision.videoElement;
+  if (!video || video.paused || video.ended || video.seeking) return;
+  if (video.readyState !== undefined && video.readyState < 2) return;
+  const vw = video.videoWidth || video.width || 0;
+  const vh = video.videoHeight || video.height || 0;
+  if (vw <= 0 || vh <= 0) return;
+
+  if (state.vision.inFlight) return;
+  state.vision.inFlight = true;
+
+  const session = state.session;
+  const epoch = state.vision.sourceEpoch;
+  const frameId = `f_${++state.vision.frameIdCounter}`;
+  const capturedClientMs = performance.now();
+
+  try {
+    let targetW = vw;
+    let targetH = vh;
+    const maxDim = Math.max(vw, vh);
+    if (maxDim > 1280) {
+      const scale = 1280 / maxDim;
+      targetW = Math.round(vw * scale);
+      targetH = Math.round(vh * scale);
+    }
+
+    if (!state.vision.canvas && typeof document !== 'undefined' && document.createElement) {
+      state.vision.canvas = document.createElement('canvas');
+    }
+    const canvas = state.vision.canvas;
+    if (!canvas || typeof canvas.getContext !== 'function') {
+      state.vision.inFlight = false;
+      return;
+    }
+
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (ctx && typeof ctx.drawImage === 'function') {
+      ctx.drawImage(video, 0, 0, targetW, targetH);
+    }
+
+    const blob = await new Promise(resolve => {
+      if (typeof canvas.toBlob === 'function') {
+        canvas.toBlob(resolve, 'image/jpeg', 0.85);
+      } else {
+        resolve(null);
+      }
+    });
+
+    if (!blob || session !== state.session || !state.vision.active) {
+      state.vision.inFlight = false;
+      return;
+    }
+
+    const resp = await fetch('/api/live/vision/frame', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'image/jpeg',
+        'X-Session-ID': String(session),
+        'X-Source-Epoch': String(epoch),
+        'X-Frame-ID': frameId,
+        'X-Captured-Client-Ms': String(capturedClientMs),
+        'X-Stabilization-Delay-Sec': '0.6'
+      },
+      body: blob
+    });
+
+    if (resp.ok && session === state.session && state.vision.active) {
+      const data = await resp.json().catch(() => null);
+      if (data && data.status) {
+        if (data.status === 'stabilizing') {
+          state.vision.status = 'STABILIZING';
+          renderSlideInspector();
+        } else if (data.status === 'queued') {
+          state.vision.status = 'OCR_PENDING';
+          renderSlideInspector();
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Vision frame upload error:', err);
+  } finally {
+    state.vision.inFlight = false;
+  }
+}
+
+async function pollVisionResult() {
+  if (!state.capturing || !state.vision || !state.vision.active) return;
+  const session = state.session;
+  const epoch = state.vision.sourceEpoch;
+
+  try {
+    const resp = await fetch(`/api/live/vision/result?session_id=${encodeURIComponent(session)}&source_epoch=${encodeURIComponent(epoch)}`, {
+      method: 'GET',
+      headers: {
+        'X-Session-ID': String(session),
+        'X-Source-Epoch': String(epoch)
+      }
+    });
+
+    if (!resp.ok) return;
+    const snap = await resp.json().catch(() => null);
+    if (!snap) return;
+
+    if (session !== state.session || !state.vision.active) return;
+    if (snap.source_epoch !== undefined && snap.source_epoch !== epoch) return;
+
+    state.currentSlide = snap;
+    state.vision.status = snap.status || 'NO_FRAME';
+    renderSlideInspector();
+  } catch (err) {
+    console.warn('Vision result poll error:', err);
+  }
+}
+
+function startVisionSchedulers(session) {
+  if (state.vision.sampleTimer) clearInterval(state.vision.sampleTimer);
+  if (state.vision.pollTimer) clearInterval(state.vision.pollTimer);
+
+  state.vision.sampleTimer = setInterval(() => {
+    if (session !== state.session || !state.capturing || !state.vision?.active) return;
+    sampleAndSendFrame();
+  }, 500);
+
+  state.vision.pollTimer = setInterval(() => {
+    if (session !== state.session || !state.capturing || !state.vision?.active) return;
+    pollVisionResult();
+  }, 1200);
+}
+
+function cleanupVision() {
+  if (!state.vision) return;
+  state.vision.active = false;
+  if (state.vision.sampleTimer) {
+    clearInterval(state.vision.sampleTimer);
+    state.vision.sampleTimer = null;
+  }
+  if (state.vision.pollTimer) {
+    clearInterval(state.vision.pollTimer);
+    state.vision.pollTimer = null;
+  }
+  if (state.vision.hiddenVideo) {
+    try {
+      state.vision.hiddenVideo.pause();
+      state.vision.hiddenVideo.srcObject = null;
+      if (state.vision.hiddenVideo.parentNode) {
+        state.vision.hiddenVideo.parentNode.removeChild(state.vision.hiddenVideo);
+      }
+    } catch (e) {}
+    state.vision.hiddenVideo = null;
+  }
+  state.vision.videoElement = null;
+  state.vision.inFlight = false;
+
+  const resetSession = String(state.session);
+  const resetEpoch = state.vision.sourceEpoch;
+  if (typeof fetch === 'function') {
+    fetch('/api/live/vision/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: resetSession, source_epoch: resetEpoch })
+    }).catch(e => console.warn('Vision reset error:', e));
+  }
+}
+
 async function startCapture(kind,captureWindow=window){
   if(!state.ready){error('Hệ thống đang khởi động model, vui lòng đợi 1–2 giây rồi bấm lại...');return;}
   if(state.stopping)return;
   if(state.capturing)await stopCapture();
   state.processing=false;state.translating=0;state.mtQueue=[];state.queue.items=[];
+  timelineCards.clear();
   error('');const session=++state.session;state.rows=[];state.pair=new LiveAudioCore.TranscriptPair();state.presenter=new LiveAudioCore.CaptionPresenter();state.asrDraft='';state.pendingWords=[];state.history=[];state.dropped=0;state.activeRow=null;state.lastAsr=null;state.lastMt=null;state.lastLag=null;renderVideoCaption();
   state.stabilizer=new LiveAudioCore.StableWords();state.presenter=new LiveAudioCore.CaptionPresenter();state.pair=new LiveAudioCore.TranscriptPair();state.pendingWords=[];state.asrDraft='';state.captionInvalid=false;
+  
+  if (state.vision) {
+    cleanupVision();
+  } else {
+    state.vision = {
+      active: false,
+      sessionId: '0',
+      sourceEpoch: 0,
+      frameIdCounter: 0,
+      inFlight: false,
+      sampleTimer: null,
+      pollTimer: null,
+      hiddenVideo: null,
+      videoElement: null,
+      canvas: null,
+      status: 'NO_FRAME'
+    };
+  }
+  state.vision.sourceEpoch = (state.vision.sourceEpoch || 0) + 1;
+  state.vision.sessionId = String(session);
+  state.vision.status = 'NO_FRAME';
+  state.currentSlide = null;
+  renderSlideInspector();
+
   el('share').disabled=true;el('mic').disabled=true;el('demo-start').disabled=true;el('state').textContent='Đang chọn nguồn…';
   let stream,ctx;
   try{
@@ -473,6 +940,54 @@ async function startCapture(kind,captureWindow=window){
     const node=new AudioWorkletNode(ctx,'pcm16k',{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1]});
     state.stream=stream;state.ctx=ctx;state.node=node;state.sourceNode=source;state.segmenter=new LiveAudioCore.RollingAudio({hopSec:Number(el('chunk').value)/1000});
     state.capturing=true;state.stopping=false;state.kind=kind;
+
+    if (kind === 'tab') {
+      const vTracks = stream.getVideoTracks ? stream.getVideoTracks() : [];
+      if (vTracks.length > 0) {
+        const vTrack = vTracks[0];
+        const hiddenVideo = document.createElement('video');
+        hiddenVideo.muted = true;
+        hiddenVideo.playsInline = true;
+        hiddenVideo.style.position = 'fixed';
+        hiddenVideo.style.top = '-9999px';
+        hiddenVideo.style.left = '-9999px';
+        hiddenVideo.style.width = '1px';
+        hiddenVideo.style.height = '1px';
+        hiddenVideo.style.opacity = '0';
+        hiddenVideo.style.pointerEvents = 'none';
+        if (typeof hiddenVideo.setAttribute === 'function') {
+          hiddenVideo.setAttribute('aria-hidden', 'true');
+        }
+        if (typeof document !== 'undefined' && document.body && typeof document.body.appendChild === 'function') {
+          document.body.appendChild(hiddenVideo);
+        }
+        if (typeof MediaStream === 'function') {
+          hiddenVideo.srcObject = new MediaStream([vTrack]);
+        }
+        if (typeof hiddenVideo.play === 'function') {
+          hiddenVideo.play().catch(e => console.warn('Hidden video play error:', e));
+        }
+        state.vision.hiddenVideo = hiddenVideo;
+        state.vision.videoElement = hiddenVideo;
+        state.vision.active = true;
+        startVisionSchedulers(session);
+      } else {
+        state.vision.videoElement = null;
+        state.vision.active = false;
+        state.vision.status = 'MIC_NO_VIDEO';
+      }
+    } else if (kind === 'video') {
+      state.vision.videoElement = el('demo-video');
+      state.vision.hiddenVideo = null;
+      state.vision.active = true;
+      startVisionSchedulers(session);
+    } else {
+      state.vision.videoElement = null;
+      state.vision.hiddenVideo = null;
+      state.vision.active = false;
+      state.vision.status = 'MIC_NO_VIDEO';
+    }
+
     node.port.onmessage=e=>{
       if(session!==state.session)return;
       if(e.data.flushed){state.flushResolve?.();return;}
@@ -489,6 +1004,7 @@ async function startCapture(kind,captureWindow=window){
     el('state').textContent='Đang thu âm thanh trực tiếp';render();
   }catch(e){
     if(kind==='video')el('demo-video').pause();
+    cleanupVision();
     stream?.getTracks().forEach(track=>track.stop());await ctx?.close().catch(()=>{});
     state.capturing=false;state.stream=null;state.ctx=null;state.node=null;state.segmenter=null;
     error(e.name==='NotAllowedError'?'Bạn chưa cấp quyền chia sẻ/thu âm. Bấm lại và chọn nguồn để thử.':e.message);
@@ -497,7 +1013,10 @@ async function startCapture(kind,captureWindow=window){
 }
 async function stopCapture(){
   if(!state.stream||state.stopping)return;
-  state.stopping=true;state.capturing=false;el('state').textContent='Đang dừng thu và xử lý đoạn cuối…';render();
+  state.stopping=true;state.capturing=false;
+  cleanupVision();
+  renderSlideInspector();
+  el('state').textContent='Đang dừng thu và xử lý đoạn cuối…';render();
   if(state.kind==='video')el('demo-video').pause();
   if(state.activeRow&&!state.activeRow.isFinal){
     state.activeRow.isFinal=true;
@@ -578,21 +1097,64 @@ el('demo-video').addEventListener('ended',()=>{if(state.kind==='video')stopCaptu
 el('demo-video').addEventListener('play',()=>{if(state.ready&&!state.capturing&&!state.stopping)startCapture('video');});
 el('demo-video').addEventListener('pause',()=>{if(state.capturing&&state.kind==='video'&&!state.stopping)stopCapture();});
 el('demo-video').addEventListener('seeking',()=>{
-  if(state.kind==='video'){state.captionInvalid=true;renderVideoCaption();if(state.capturing){stopCapture();error('Đã tua video. Chờ xử lý xong rồi bấm Phát video NVIDIA và dịch để bắt đầu phiên mới tại vị trí này.');}}
+  if(state.kind==='video'){
+    state.captionInvalid=true;
+    renderVideoCaption();
+    if(state.vision){
+      state.vision.sourceEpoch=(state.vision.sourceEpoch||0)+1;
+      const resetSession=String(state.session);
+      const resetEpoch=state.vision.sourceEpoch;
+      if(typeof fetch==='function'){
+        fetch('/api/live/vision/reset',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({session_id:resetSession,source_epoch:resetEpoch})
+        }).catch(e=>console.warn('Vision reset error on seek:',e));
+      }
+    }
+    if(state.capturing){
+      stopCapture();
+      error('Đã tua video. Chờ xử lý xong rồi bấm Phát video NVIDIA và dịch để bắt đầu phiên mới tại vị trí này.');
+    }
+  }
 });
 el('export').onclick=()=>{
-  const content={version:2,exportedAt:new Date().toISOString(),model:state.model,asrHopMs:Number(el('chunk').value),asrWindowSec:12,dropped:state.dropped,latencyDefinition:'client receipt of ASR snapshot final PCM packet to translation result; not utterance-end latency',ocrEnabled:false,segments:state.rows};
+  const content={
+    version:2,
+    exportedAt:new Date().toISOString(),
+    model:state.model,
+    asrHopMs:Number(el('chunk').value),
+    asrWindowSec:12,
+    dropped:state.dropped,
+    latencyDefinition:'client receipt of ASR snapshot final PCM packet to translation result; not utterance-end latency',
+    ocrEnabled:!!(state.vision?.active||state.currentSlide),
+    currentSlide:state.currentSlide||null,
+    segments:state.rows
+  };
   const url=URL.createObjectURL(new Blob([JSON.stringify(content,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='live-session-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
 window.addEventListener('pagehide',()=>{state.stream?.getTracks().forEach(track=>track.stop());state.ctx?.close();state.pip?.close();});
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.LiveVision = {
+    sampleAndSendFrame,
+    pollVisionResult,
+    renderSlideInspector,
+    cleanupVision,
+    renderEntityTags,
+    initSlideToggle
+  };
+}
+
 (async()=>{
   try{
+    initSlideToggle();
     if(!navigator.mediaDevices||!window.AudioWorkletNode)throw new Error('Cần trình duyệt hỗ trợ thu âm và AudioWorklet; mở bằng Chrome trên localhost.');
     const info=await requestJSON('/api/translation-status');
     if(!info.live_audio_enabled)throw new Error('Server đang chạy bản cũ. Nhấn Ctrl+C ở cửa sổ server rồi mở lại studio.cmd.');
     if(!info.incremental_asr_enabled)throw new Error('Cần khởi động lại server để bật ASR tăng dần: Ctrl+C rồi mở studio.cmd.');
     if(!info.configured)throw new Error('Server chưa cấu hình provider/khóa dịch. Chạy studio.cmd để dùng local hoặc studio.cmd gemini để nhập khóa.');
-    state.model=info.model||state.model;el('config').textContent=`Provider: ${info.provider} · Model: ${info.model||'text demo'} · ASR local · OCR chưa bật`;
+    state.model=info.model||state.model;el('config').textContent=`Provider: ${info.provider} · Model: ${info.model||'text demo'} · ASR local · OCR slide sẵn sàng`;
     el('state').textContent='Đang khởi động ASR local…';render();
     try{await requestJSON('/api/live/warmup',{method:'POST'});}catch(wErr){console.warn('Warmup non-blocking:',wErr);}
     state.ready=true;el('state').textContent='Sẵn sàng phát video hoặc chia sẻ tab';render();
