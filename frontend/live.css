@@ -419,7 +419,26 @@ button:disabled {
 .slide-panel-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+.slide-inspect-btn {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+.slide-inspect-btn:hover {
+  background: rgba(56, 189, 248, 0.22);
+  color: #ffffff;
+  border-color: #38bdf8;
 }
 .slide-enable-label {
   font-size: 11.5px;
@@ -820,4 +839,190 @@ footer {
   .slide-field-label {
     min-width: auto;
   }
+}
+
+/* Modal Xem Chi Tiết & Chỉnh Sửa OCR */
+.ocr-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.ocr-modal[hidden] {
+  display: none !important;
+}
+.ocr-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 12, 20, 0.78);
+  backdrop-filter: blur(4px);
+}
+.ocr-modal-dialog {
+  position: relative;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 680px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+  overflow: hidden;
+  animation: modal-appear 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modal-appear {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.ocr-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+}
+.ocr-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ocr-modal-title h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #f1f5f9;
+  font-weight: 600;
+}
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.modal-close-btn:hover {
+  color: #f87171;
+}
+.ocr-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ocr-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ocr-edit-form label {
+  font-size: 13px;
+  color: #cbd5e1;
+  margin-top: 6px;
+}
+.ocr-input-text {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #f8fafc;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.ocr-input-text:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+}
+.ocr-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #f8fafc;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.ocr-textarea:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+}
+.ocr-raw-container h4 {
+  margin: 12px 0 8px;
+  font-size: 13.5px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+.ocr-raw-list {
+  background: #141f33;
+  border: 1px solid #24354d;
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ocr-raw-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e293b;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #e2e8f0;
+}
+.ocr-raw-score {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-family: monospace;
+}
+.ocr-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: #1e293b;
+  border-top: 1px solid #334155;
+}
+.ocr-modal-feedback {
+  margin-right: auto;
+  font-size: 12.5px;
+  color: #6ee7b7;
+}
+.ocr-save-btn {
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.ocr-save-btn:hover {
+  background: #0369a1;
 }

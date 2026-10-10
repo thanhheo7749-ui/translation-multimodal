@@ -6,6 +6,7 @@ Object.assign(state,{activeRow:null,translating:0,mtQueue:[],pendingWords:[],pen
 state.pair=new LiveAudioCore.TranscriptPair();
 state.currentSlide=null;
 state.vision={active:false,enabled:true,sessionId:'0',sourceEpoch:0,frameIdCounter:0,inFlight:false,sampleTimer:null,pollTimer:null,hiddenVideo:null,videoElement:null,canvas:null,status:'NO_FRAME'};
+if(typeof window!=='undefined')window.state=state;
 function setSafeText(idOrEl, value) {
   const node = typeof idOrEl === 'string' ? el(idOrEl) : idOrEl;
   if (!node) return;
@@ -255,6 +256,113 @@ function initSlideToggle() {
         renderSlideInspector();
       }
     });
+  }
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>'"]/g, tag => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;'
+  }[tag] || tag));
+}
+
+function initOcrModal() {
+  const inspectBtn = el('slide-inspect-btn');
+  const modal = el('ocr-modal');
+  const closeBtn = el('ocr-modal-close');
+  const cancelBtn = el('ocr-modal-cancel');
+  const backdrop = el('ocr-modal-backdrop');
+  const saveBtn = el('ocr-modal-save');
+  const titleInput = el('ocr-edit-title');
+  const entitiesInput = el('ocr-edit-entities');
+  const rawList = el('ocr-raw-list');
+  const feedback = el('ocr-modal-feedback');
+
+  if (!inspectBtn || !modal) return;
+
+  function closeModal() {
+    modal.hidden = true;
+    if (feedback) feedback.textContent = '';
+  }
+
+  function openModal() {
+    modal.hidden = false;
+    if (feedback) feedback.textContent = '';
+    const snap = state.currentSlide;
+    const title = snap?.title || '';
+    if (titleInput) titleInput.value = title;
+
+    const entities = snap?.entities || [];
+    const textList = entities.map(e => typeof e === 'string' ? e : (e.text || '')).filter(Boolean);
+    if (entitiesInput) entitiesInput.value = textList.join(', ');
+
+    if (rawList) {
+      if (!entities.length) {
+        rawList.innerHTML = '<p class="muted" style="padding:10px;text-align:center;color:#64748b;">Chưa có dòng chữ nào được quét từ slide.</p>';
+      } else {
+        const items = entities.map(e => {
+          const txt = typeof e === 'string' ? e : (e.text || '');
+          const score = typeof e === 'object' && e.score !== undefined ? `${Math.round(e.score * 100)}%` : '100%';
+          return `<div class="ocr-raw-item"><span>${escapeHtml(txt)}</span><span class="ocr-raw-score">${score}</span></div>`;
+        });
+        rawList.innerHTML = items.join('');
+      }
+    }
+  }
+
+  inspectBtn.onclick = openModal;
+  if (closeBtn) closeBtn.onclick = closeModal;
+  if (cancelBtn) cancelBtn.onclick = closeModal;
+  if (backdrop) backdrop.onclick = closeModal;
+
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const newTitle = (titleInput?.value || '').trim();
+      const rawEntities = (entitiesInput?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+      saveBtn.disabled = true;
+      if (feedback) feedback.textContent = 'Đang lưu…';
+
+      try {
+        if (!state.currentSlide) {
+          state.currentSlide = {
+            session_id: String(state.session),
+            source_epoch: state.vision?.sourceEpoch || 0,
+            status: 'READY',
+            title: newTitle,
+            entities: rawEntities.map(t => ({ text: t, score: 1.0, box: [] }))
+          };
+        } else {
+          state.currentSlide.title = newTitle;
+          state.currentSlide.entities = rawEntities.map(t => ({ text: t, score: 1.0, box: [] }));
+          state.currentSlide.status = 'READY';
+        }
+
+        renderSlideInspector();
+
+        await requestJSON('/api/live/vision/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: String(state.session),
+            source_epoch: state.vision?.sourceEpoch || 0,
+            title: newTitle,
+            entities: rawEntities
+          })
+        });
+
+        if (feedback) feedback.textContent = '✅ Đã cập nhật ngữ cảnh thành công!';
+        setTimeout(closeModal, 600);
+      } catch (err) {
+        console.warn('Override error:', err);
+        if (feedback) feedback.textContent = '✅ Đã lưu cục bộ (offline)';
+        setTimeout(closeModal, 600);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    };
   }
 }
 
@@ -1223,6 +1331,7 @@ function updateCaptionPreferences() {
 (async()=>{
   try{
     initSlideToggle();
+    initOcrModal();
     el('caption-show-en')?.addEventListener('change', updateCaptionPreferences);
     el('caption-font-size')?.addEventListener('change', updateCaptionPreferences);
     updateCaptionPreferences();
