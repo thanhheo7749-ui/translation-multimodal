@@ -70,6 +70,20 @@
         </div>
       </div>
       <div id="slide-panel-body" class="slide-panel-body">
+        <!-- BỘ CHỌN & LƯU LỊCH SỬ SLIDE -->
+        <div id="slide-history-nav" class="slide-history-nav">
+          <div class="slide-nav-meta">
+            <span class="slide-history-label">Lịch sử slide đã quét:</span>
+            <span id="slide-nav-counter" class="slide-nav-counter">0 slide</span>
+          </div>
+          <div class="slide-nav-actions">
+            <button id="slide-prev-btn" class="slide-nav-btn" type="button" title="Xem slide trước" disabled>◀ Trước</button>
+            <button id="slide-next-btn" class="slide-nav-btn" type="button" title="Xem slide kế tiếp" disabled>Sau ▶</button>
+          </div>
+        </div>
+        <div id="slide-chips" class="slide-chips" role="tablist" aria-label="Danh sách slide">
+          <span class="slide-chip placeholder">Chưa có slide</span>
+        </div>
         <div class="slide-row">
           <span class="slide-field-label">Tiêu đề slide:</span>
           <div id="slide-title" class="slide-title-val">Chưa phát hiện slide</div>
@@ -103,7 +117,7 @@
     <div class="ocr-modal-header">
       <div class="ocr-modal-title">
         <span class="modal-icon">🔍</span>
-        <h3>Chi tiết & Chỉnh sửa Ngữ cảnh Slide OCR</h3>
+        <h3 id="ocr-modal-heading">Chi tiết & Chỉnh sửa Ngữ cảnh Slide OCR</h3>
       </div>
       <button id="ocr-modal-close" class="modal-close-btn" type="button" aria-label="Đóng">&times;</button>
     </div>

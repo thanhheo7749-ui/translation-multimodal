@@ -5,6 +5,30 @@ const labels={queued:'Chờ xử lý',asr:'Đang nhận dạng',mt:'Đang dịch
 Object.assign(state,{activeRow:null,translating:0,mtQueue:[],pendingWords:[],pendingSince:0,asrDraft:'',stabilizer:new LiveAudioCore.StableWords(),captionInvalid:false,presenter:new LiveAudioCore.CaptionPresenter()});
 state.pair=new LiveAudioCore.TranscriptPair();
 state.currentSlide=null;
+state.slides=[];
+state.viewingSlideId=null;
+
+function saveSlidesToStorage() {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('live_slides_history', JSON.stringify(state.slides));
+    }
+  } catch (e) {}
+}
+
+function loadSlidesFromStorage() {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const data = sessionStorage.getItem('live_slides_history');
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          state.slides = parsed;
+        }
+      }
+    }
+  } catch (e) {}
+}
 state.vision={active:false,enabled:true,sessionId:'0',sourceEpoch:0,frameIdCounter:0,inFlight:false,sampleTimer:null,pollTimer:null,hiddenVideo:null,videoElement:null,canvas:null,status:'NO_FRAME'};
 if(typeof window!=='undefined')window.state=state;
 function setSafeText(idOrEl, value) {
@@ -123,11 +147,98 @@ function renderEntityTags(container, entities, isMic, titleText = '') {
   }
 }
 
+function renderSlideChips(container, activeSlide) {
+  if (!container) return;
+  const key = (!state.slides || !state.slides.length)
+    ? '__empty__'
+    : state.slides.map(s => `${s.slide_id}:${s.title}:${s.isUserEdited ? 1 : 0}:${activeSlide && s.slide_id === activeSlide.slide_id ? 1 : 0}`).join('|');
+  if (container._renderedKey === key) return;
+  container._renderedKey = key;
+
+  if (!state.slides || !state.slides.length) {
+    if (typeof container.replaceChildren === 'function') {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'slide-chip placeholder';
+      placeholder.textContent = 'Chưa có slide';
+      container.replaceChildren(placeholder);
+    }
+    return;
+  }
+
+  const chips = [];
+  for (let i = 0; i < state.slides.length; i++) {
+    const s = state.slides[i];
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    const isActive = Boolean(activeSlide && s.slide_id === activeSlide.slide_id);
+    let className = 'slide-chip';
+    if (isActive) className += ' active';
+    if (s.isUserEdited) className += ' is-edited';
+    chip.className = className;
+
+    const shortTitle = s.title ? (s.title.length > 18 ? s.title.slice(0, 18) + '…' : s.title) : `Slide #${s.slide_id}`;
+    chip.textContent = `${s.isUserEdited ? '✏️ ' : ''}#${s.slide_id}: ${shortTitle}`;
+    chip.title = `Xem lại Slide #${s.slide_id}: ${s.title || ''}`;
+    chip.onclick = () => {
+      state.viewingSlideId = s.slide_id;
+      renderSlideInspector();
+    };
+    chips.push(chip);
+  }
+  if (typeof container.replaceChildren === 'function') {
+    container.replaceChildren(...chips);
+  }
+}
+
+function initSlideNavButtons() {
+  const prevBtn = el('slide-prev-btn');
+  const nextBtn = el('slide-next-btn');
+  if (prevBtn) {
+    prevBtn.onclick = () => {
+      if (!state.slides || !state.slides.length) return;
+      let activeSlide = (state.viewingSlideId !== null ? state.slides.find(s => s.slide_id === state.viewingSlideId) : null) || state.slides[state.slides.length - 1];
+      let activeIdx = state.slides.findIndex(s => s.slide_id === activeSlide?.slide_id);
+      if (activeIdx > 0) {
+        state.viewingSlideId = state.slides[activeIdx - 1].slide_id;
+        renderSlideInspector();
+      }
+    };
+  }
+  if (nextBtn) {
+    nextBtn.onclick = () => {
+      if (!state.slides || !state.slides.length) return;
+      let activeSlide = (state.viewingSlideId !== null ? state.slides.find(s => s.slide_id === state.viewingSlideId) : null) || state.slides[state.slides.length - 1];
+      let activeIdx = state.slides.findIndex(s => s.slide_id === activeSlide?.slide_id);
+      if (activeIdx >= 0 && activeIdx < state.slides.length - 1) {
+        state.viewingSlideId = state.slides[activeIdx + 1].slide_id;
+        renderSlideInspector();
+      }
+    };
+  }
+}
+
 function renderSlideInspector() {
   const statusEl = el('slide-status');
   const titleEl = el('slide-title');
   const entitiesEl = el('slide-entities');
+  const counterEl = el('slide-nav-counter');
+  const chipsEl = el('slide-chips');
+  const prevBtn = el('slide-prev-btn');
+  const nextBtn = el('slide-next-btn');
   if (!statusEl && !titleEl && !entitiesEl) return;
+
+  // Determine active viewing slide
+  let activeSlide = null;
+  if (state.viewingSlideId !== null && state.slides && state.slides.length) {
+    activeSlide = state.slides.find(s => s.slide_id === state.viewingSlideId) || null;
+  }
+  if (!activeSlide) {
+    if (state.slides && state.slides.length > 0) {
+      activeSlide = state.slides[state.slides.length - 1];
+    } else {
+      activeSlide = state.currentSlide;
+    }
+  }
 
   let statusText = 'Chờ hình ảnh';
   let statusClass = 'slide-badge badge-idle';
@@ -137,11 +248,11 @@ function renderSlideInspector() {
   const isEnabled = state.vision?.enabled !== false;
   const isMic = state.capturing && state.kind === 'mic';
   if (!isEnabled) {
-    if (state.currentSlide?.title || (state.currentSlide?.entities && state.currentSlide.entities.length)) {
+    if (activeSlide?.title || (activeSlide?.entities && activeSlide.entities.length)) {
       statusText = 'Tạm dừng quét';
       statusClass = 'slide-badge badge-idle';
-      titleText = state.currentSlide.title || '(Không có tiêu đề slide)';
-      entities = state.currentSlide.entities || [];
+      titleText = activeSlide.title || '(Không có tiêu đề slide)';
+      entities = activeSlide.entities || [];
     } else {
       statusText = 'Đã tắt quét';
       statusClass = 'slide-badge badge-idle';
@@ -153,11 +264,11 @@ function renderSlideInspector() {
     statusClass = 'slide-badge badge-mic';
     titleText = 'Chế độ Micro: OCR cần nguồn hình ảnh (Chia sẻ Tab hoặc Video).';
   } else if (!state.capturing) {
-    if (state.currentSlide?.title || (state.currentSlide?.entities && state.currentSlide.entities.length)) {
-      statusText = 'Đã lưu slide';
+    if (activeSlide?.title || (activeSlide?.entities && activeSlide.entities.length)) {
+      statusText = `Đã lưu ${state.slides.length || 1} slide`;
       statusClass = 'slide-badge badge-ready';
-      titleText = state.currentSlide.title || '(Không có tiêu đề slide)';
-      entities = state.currentSlide.entities || [];
+      titleText = activeSlide.title || '(Không có tiêu đề slide)';
+      entities = activeSlide.entities || [];
     } else {
       statusText = 'Chờ hình ảnh';
       statusClass = 'slide-badge badge-idle';
@@ -170,33 +281,40 @@ function renderSlideInspector() {
     if (vStatus === 'STABILIZING') {
       statusText = 'Đang ổn định';
       statusClass = 'slide-badge badge-stabilizing';
-      titleText = snap?.title ? snap.title + ' (đang chuyển cảnh…)' : 'Đang ổn định khung hình…';
-      entities = snap?.entities || [];
+      titleText = activeSlide?.title ? activeSlide.title + ' (đang chuyển cảnh…)' : 'Đang ổn định khung hình…';
+      entities = activeSlide?.entities || [];
     } else if (vStatus === 'OCR_PENDING') {
       statusText = 'Đang trích xuất chữ';
       statusClass = 'slide-badge badge-stabilizing';
-      titleText = snap?.title || 'Đang trích xuất chữ…';
-      entities = snap?.entities || [];
-    } else if (snap?.status === 'READY') {
-      statusText = 'Đã trích xuất chữ';
-      statusClass = 'slide-badge badge-ready';
-      titleText = snap.title || '(Không có tiêu đề slide)';
-      entities = snap.entities || [];
-    } else if (snap?.status === 'EMPTY' || vStatus === 'EMPTY') {
-      statusText = 'Không có chữ';
-      statusClass = 'slide-badge badge-empty';
-      titleText = 'Không có chữ trên slide.';
-      entities = [];
+      titleText = activeSlide?.title || 'Đang trích xuất chữ…';
+      entities = activeSlide?.entities || [];
+    } else if (vStatus === 'EMPTY' || snap?.status === 'EMPTY') {
+      if (state.viewingSlideId !== null && activeSlide) {
+        statusText = `Đã lưu Slide #${activeSlide.slide_id}`;
+        statusClass = 'slide-badge badge-ready';
+        titleText = activeSlide.title || '(Không có tiêu đề slide)';
+        entities = activeSlide.entities || [];
+      } else {
+        statusText = 'Không có chữ';
+        statusClass = 'slide-badge badge-empty';
+        titleText = 'Không có chữ trên slide.';
+        entities = [];
+      }
     } else if (vStatus === 'ERROR' || snap?.status === 'ERROR') {
       statusText = 'Lỗi nhận dạng';
       statusClass = 'slide-badge badge-error';
-      titleText = 'Không thể trích xuất chữ từ frame này.';
-      entities = [];
+      titleText = activeSlide?.title || 'Không thể trích xuất chữ từ frame này.';
+      entities = activeSlide?.entities || [];
+    } else if (activeSlide?.status === 'READY' || snap?.status === 'READY') {
+      statusText = 'Đã trích xuất chữ';
+      statusClass = 'slide-badge badge-ready';
+      titleText = activeSlide?.title || '(Không có tiêu đề slide)';
+      entities = activeSlide?.entities || [];
     } else {
       statusText = 'Chờ hình ảnh';
       statusClass = 'slide-badge badge-idle';
-      titleText = snap?.title || 'Chưa phát hiện slide';
-      entities = snap?.entities || [];
+      titleText = activeSlide?.title || 'Chưa phát hiện slide';
+      entities = activeSlide?.entities || [];
     }
   }
 
@@ -209,6 +327,24 @@ function renderSlideInspector() {
   }
   if (entitiesEl) {
     renderEntityTags(entitiesEl, entities, isMic, titleText);
+  }
+
+  // Update navigation counter & buttons
+  const totalSlides = state.slides ? state.slides.length : 0;
+  if (counterEl) {
+    const activeIdx = activeSlide && state.slides ? state.slides.findIndex(s => s.slide_id === activeSlide.slide_id) : -1;
+    const pos = activeIdx >= 0 ? `${activeIdx + 1}/${totalSlides}` : `${totalSlides} slide`;
+    setSafeText(counterEl, totalSlides ? `Slide ${pos}` : '0 slide');
+  }
+
+  if (prevBtn && nextBtn) {
+    const activeIdx = activeSlide && state.slides ? state.slides.findIndex(s => s.slide_id === activeSlide.slide_id) : -1;
+    prevBtn.disabled = activeIdx <= 0;
+    nextBtn.disabled = activeIdx < 0 || activeIdx >= totalSlides - 1;
+  }
+
+  if (chipsEl) {
+    renderSlideChips(chipsEl, activeSlide);
   }
 
   const scanIndicator = el('slide-scan-indicator');
@@ -276,6 +412,7 @@ function initOcrModal() {
   const cancelBtn = el('ocr-modal-cancel');
   const backdrop = el('ocr-modal-backdrop');
   const saveBtn = el('ocr-modal-save');
+  const heading = el('ocr-modal-heading');
   const titleInput = el('ocr-edit-title');
   const entitiesInput = el('ocr-edit-entities');
   const rawList = el('ocr-raw-list');
@@ -288,12 +425,28 @@ function initOcrModal() {
     if (feedback) feedback.textContent = '';
   }
 
+  function getTargetSlide() {
+    if (state.viewingSlideId !== null && state.slides && state.slides.length) {
+      const found = state.slides.find(s => s.slide_id === state.viewingSlideId);
+      if (found) return found;
+    }
+    if (state.slides && state.slides.length > 0) {
+      return state.slides[state.slides.length - 1];
+    }
+    return state.currentSlide;
+  }
+
   function openModal() {
     modal.hidden = false;
     if (feedback) feedback.textContent = '';
-    const snap = state.currentSlide;
+    const snap = getTargetSlide();
     const title = snap?.title || '';
     if (titleInput) titleInput.value = title;
+
+    if (heading) {
+      const sId = snap?.slide_id || (state.slides?.length ? state.slides.length : 1);
+      heading.textContent = `Chi tiết & Chỉnh sửa Ngữ cảnh - Slide #${sId}${snap?.isUserEdited ? ' (Đã sửa)' : ''}`;
+    }
 
     const entities = snap?.entities || [];
     const textList = entities.map(e => typeof e === 'string' ? e : (e.text || '')).filter(Boolean);
@@ -301,7 +454,7 @@ function initOcrModal() {
 
     if (rawList) {
       if (!entities.length) {
-        rawList.innerHTML = '<p class="muted" style="padding:10px;text-align:center;color:#64748b;">Chưa có dòng chữ nào được quét từ slide.</p>';
+        rawList.innerHTML = '<p class="muted" style="padding:10px;text-align:center;color:#64748b;">Chưa có dòng chữ nào được quét từ slide này.</p>';
       } else {
         const items = entities.map(e => {
           const txt = typeof e === 'string' ? e : (e.text || '');
@@ -326,20 +479,42 @@ function initOcrModal() {
       if (feedback) feedback.textContent = 'Đang lưu…';
 
       try {
-        if (!state.currentSlide) {
-          state.currentSlide = {
+        let snap = getTargetSlide();
+        const formattedEntities = rawEntities.map(t => ({ text: t, score: 1.0, box: [] }));
+
+        if (!snap) {
+          const newId = (state.slides ? state.slides.length : 0) + 1;
+          snap = {
             session_id: String(state.session),
             source_epoch: state.vision?.sourceEpoch || 0,
             status: 'READY',
+            slide_id: newId,
+            slide_revision: 1,
             title: newTitle,
-            entities: rawEntities.map(t => ({ text: t, score: 1.0, box: [] }))
+            entities: formattedEntities,
+            isUserEdited: true
           };
+          if (!state.slides) state.slides = [];
+          state.slides.push(snap);
+          state.currentSlide = snap;
+          state.viewingSlideId = newId;
         } else {
-          state.currentSlide.title = newTitle;
-          state.currentSlide.entities = rawEntities.map(t => ({ text: t, score: 1.0, box: [] }));
-          state.currentSlide.status = 'READY';
+          snap.title = newTitle;
+          snap.entities = formattedEntities;
+          snap.status = 'READY';
+          snap.isUserEdited = true;
+          if (!state.slides) state.slides = [];
+          if (!state.slides.some(s => s.slide_id === snap.slide_id)) {
+            state.slides.push(snap);
+          }
+          if (state.currentSlide && state.currentSlide.slide_id === snap.slide_id) {
+            state.currentSlide.title = newTitle;
+            state.currentSlide.entities = formattedEntities;
+            state.currentSlide.status = 'READY';
+          }
         }
 
+        saveSlidesToStorage();
         renderSlideInspector();
 
         await requestJSON('/api/live/vision/override', {
@@ -348,12 +523,13 @@ function initOcrModal() {
           body: JSON.stringify({
             session_id: String(state.session),
             source_epoch: state.vision?.sourceEpoch || 0,
+            slide_id: snap.slide_id,
             title: newTitle,
             entities: rawEntities
           })
         });
 
-        if (feedback) feedback.textContent = '✅ Đã cập nhật ngữ cảnh thành công!';
+        if (feedback) feedback.textContent = '✅ Đã lưu slide vĩnh viễn!';
         setTimeout(closeModal, 600);
       } catch (err) {
         console.warn('Override error:', err);
@@ -499,7 +675,8 @@ function renderTimeline() {
     const cardClass = 'card ' + (badgeInfo.cardClass || '');
     if (cached.card.className !== cardClass) cached.card.className = cardClass;
 
-    const timeText = `#${row.id} · ${seconds(row.startSec)}s`;
+    const slideTag = row.slideTitle ? ` · 🏷️ #${row.slideId || ''} ${row.slideTitle.length > 20 ? row.slideTitle.slice(0, 20) + '…' : row.slideTitle}` : '';
+    const timeText = `#${row.id} · ${seconds(row.startSec)}s${slideTag}`;
     if (cached.time.textContent !== timeText) cached.time.textContent = timeText;
 
     const badgeClass = 'badge ' + (badgeInfo.badgeClass || '');
@@ -566,11 +743,14 @@ function consumePendingWords(final = false) {
   while (state.pendingWords.length > 0) {
     if (!state.activeRow) {
       const first = state.pendingWords[0];
+      const currentActiveSlide = (state.slides && state.slides.length > 0) ? state.slides[state.slides.length - 1] : state.currentSlide;
       state.activeRow = {
         id: state.rows.length + 1,
         session: state.session,
         startSec: first.start,
         mediaStart: first.mediaStart,
+        slideId: currentActiveSlide?.slide_id || null,
+        slideTitle: currentActiveSlide?.title || '',
         status: 'mt',
         en: '',
         vi: '',
@@ -988,8 +1168,36 @@ async function pollVisionResult() {
     if (session !== state.session || !state.vision.active) return;
     if (snap.source_epoch !== undefined && snap.source_epoch !== epoch) return;
 
-    state.currentSlide = snap;
     state.vision.status = snap.status || 'NO_FRAME';
+
+    if (snap.status === 'READY' && snap.slide_id) {
+      state.currentSlide = snap;
+      if (!state.slides) state.slides = [];
+      const existing = state.slides.find(s => s.slide_id === snap.slide_id);
+      if (!existing) {
+        state.slides.push({
+          session_id: String(session),
+          source_epoch: epoch,
+          slide_id: snap.slide_id,
+          slide_revision: snap.slide_revision || 1,
+          title: snap.title || '',
+          entities: snap.entities || [],
+          status: 'READY',
+          content_hash: snap.content_hash || '',
+          isUserEdited: false,
+          firstSeenMs: performance.now()
+        });
+      } else {
+        existing.slide_revision = snap.slide_revision || existing.slide_revision;
+        if (!existing.isUserEdited) {
+          existing.title = snap.title || existing.title;
+          existing.entities = snap.entities || existing.entities;
+          existing.content_hash = snap.content_hash || existing.content_hash;
+        }
+      }
+      saveSlidesToStorage();
+    }
+
     renderSlideInspector();
   } catch (err) {
     console.warn('Vision result poll error:', err);
@@ -1075,7 +1283,6 @@ async function startCapture(kind,captureWindow=window){
   state.vision.sourceEpoch = (state.vision.sourceEpoch || 0) + 1;
   state.vision.sessionId = String(session);
   state.vision.status = 'NO_FRAME';
-  state.currentSlide = null;
   renderSlideInspector();
 
   el('share').disabled=true;el('mic').disabled=true;el('demo-start').disabled=true;el('state').textContent='Đang chọn nguồn…';
@@ -1263,22 +1470,13 @@ setInterval(()=>{
 },250);
 el('demo-video').addEventListener('ended',()=>{if(state.kind==='video')stopCapture();});
 el('demo-video').addEventListener('play',()=>{if(state.ready&&!state.capturing&&!state.stopping)startCapture('video');});
-el('demo-video').addEventListener('pause',()=>{if(state.capturing&&state.kind==='video'&&!state.stopping)stopCapture();});
+// Demo video pause does NOT stop capture to allow inspection & human editing without data loss
 el('demo-video').addEventListener('seeking',()=>{
   if(state.kind==='video'){
     state.captionInvalid=true;
     renderVideoCaption();
     if(state.vision){
       state.vision.sourceEpoch=(state.vision.sourceEpoch||0)+1;
-      const resetSession=String(state.session);
-      const resetEpoch=state.vision.sourceEpoch;
-      if(typeof fetch==='function'){
-        fetch('/api/live/vision/reset',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({session_id:resetSession,source_epoch:resetEpoch})
-        }).catch(e=>console.warn('Vision reset error on seek:',e));
-      }
     }
     if(state.capturing){
       stopCapture();
@@ -1295,8 +1493,10 @@ el('export').onclick=()=>{
     asrWindowSec:12,
     dropped:state.dropped,
     latencyDefinition:'client receipt of ASR snapshot final PCM packet to translation result; not utterance-end latency',
-    ocrEnabled:!!(state.vision?.active||state.currentSlide),
+    ocrEnabled:!!(state.vision?.active||(state.slides && state.slides.length > 0)||state.currentSlide),
+    totalSlides:state.slides ? state.slides.length : 0,
     currentSlide:state.currentSlide||null,
+    slides:state.slides||[],
     segments:state.rows
   };
   const url=URL.createObjectURL(new Blob([JSON.stringify(content,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='live-session-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1308,9 +1508,13 @@ if (typeof globalThis !== 'undefined') {
     sampleAndSendFrame,
     pollVisionResult,
     renderSlideInspector,
+    renderSlideChips,
+    initSlideNavButtons,
     cleanupVision,
     renderEntityTags,
-    initSlideToggle
+    initSlideToggle,
+    saveSlidesToStorage,
+    loadSlidesFromStorage
   };
 }
 
@@ -1330,8 +1534,11 @@ function updateCaptionPreferences() {
 
 (async()=>{
   try{
+    loadSlidesFromStorage();
     initSlideToggle();
+    initSlideNavButtons();
     initOcrModal();
+    renderSlideInspector();
     el('caption-show-en')?.addEventListener('change', updateCaptionPreferences);
     el('caption-font-size')?.addEventListener('change', updateCaptionPreferences);
     updateCaptionPreferences();

@@ -196,9 +196,10 @@ class SessionVisionState:
         self.slide_counter: int = 0
         self.slide_revision: int = 0
         self.last_ocr_hash: str = ""
+        self.slides_registry: Dict[int, Dict[str, Any]] = {}
         self.lock = threading.Lock()
 
-    def reset_epoch(self, new_epoch: int):
+    def reset_epoch(self, new_epoch: int, clear_registry: bool = False):
         """Resets detector and visual memory when source or timeline changes."""
         self.source_epoch = new_epoch
         self.detector.reset()
@@ -215,6 +216,8 @@ class SessionVisionState:
         self.slide_revision = 0
         self.last_ocr_hash = ""
         self.visual_cache = VisualMemoryCache()
+        if clear_registry:
+            self.slides_registry.clear()
         logger.info("Session %s reset to source_epoch %s", self.session_id, new_epoch)
 
     def ingest_frame(
@@ -438,7 +441,12 @@ class SessionVisionState:
         snap_dict["is_stale"] = is_stale
         return snap_dict
 
-    def override_context(self, title: str, entities: List[Union[str, Dict[str, Any]]]):
+    def override_context(
+        self,
+        title: str,
+        entities: List[Union[str, Dict[str, Any]]],
+        slide_id: Optional[int] = None
+    ):
         """Allows user / human-in-the-loop to edit and correct OCR title and entities."""
         with self.lock:
             formatted_entities = []
@@ -456,37 +464,67 @@ class SessionVisionState:
                             "box": e.get("box", [])
                         })
 
-            if self.current_snapshot is None:
-                self.slide_counter += 1
-                self.current_snapshot = SlideSnapshot(
-                    session_id=self.session_id,
-                    source_epoch=self.source_epoch,
-                    frame_id="user_override",
-                    slide_id=self.slide_counter,
-                    slide_revision=1,
-                    status="READY",
-                    title=title.strip(),
-                    entities=formatted_entities,
-                    content_hash=compute_content_hash(formatted_entities),
-                    captured_client_ms=time.time() * 1000,
-                    available_server_ms=time.time() * 1000
-                )
-                self.history.append(self.current_snapshot)
-            else:
-                self.current_snapshot.title = title.strip()
-                self.current_snapshot.entities = formatted_entities
-                self.current_snapshot.status = "READY"
-                self.current_snapshot.content_hash = compute_content_hash(formatted_entities)
+            target_id = slide_id
+            if target_id is None:
+                if self.current_snapshot is not None and self.current_snapshot.slide_id > 0:
+                    target_id = self.current_snapshot.slide_id
+                else:
+                    self.slide_counter += 1
+                    target_id = self.slide_counter
+
+            if self.current_snapshot is None or (self.current_snapshot.slide_id == target_id):
+                if self.current_snapshot is None:
+                    self.current_snapshot = SlideSnapshot(
+                        session_id=self.session_id,
+                        source_epoch=self.source_epoch,
+                        frame_id="user_override",
+                        slide_id=target_id,
+                        slide_revision=1,
+                        status="READY",
+                        title=title.strip(),
+                        entities=formatted_entities,
+                        content_hash=compute_content_hash(formatted_entities),
+                        captured_client_ms=time.time() * 1000,
+                        available_server_ms=time.time() * 1000
+                    )
+                    self.history.append(self.current_snapshot)
+                else:
+                    self.current_snapshot.title = title.strip()
+                    self.current_snapshot.entities = formatted_entities
+                    self.current_snapshot.status = "READY"
+                    self.current_snapshot.content_hash = compute_content_hash(formatted_entities)
+
+            # Store in slides_registry for full session history
+            current_rev = (
+                self.current_snapshot.slide_revision
+                if (self.current_snapshot and self.current_snapshot.slide_id == target_id)
+                else 1
+            )
+            self.slides_registry[target_id] = {
+                "slide_id": target_id,
+                "slide_revision": current_rev,
+                "title": title.strip(),
+                "entities": formatted_entities,
+                "status": "READY",
+                "content_hash": compute_content_hash(formatted_entities),
+                "captured_client_ms": time.time() * 1000,
+                "is_user_edited": True
+            }
 
             self.state = "READY"
             self.last_frame_received_time = time.time()
             v_entities = [VisualEntity(text=e["text"], score=e["score"], box=e["box"]) for e in formatted_entities]
             self.visual_cache.update_slide(
-                slide_id=self.current_snapshot.slide_id,
-                title=self.current_snapshot.title,
+                slide_id=target_id,
+                title=title.strip(),
                 entities=v_entities
             )
-            logger.info("Session %s context overridden by user: title='%s', %d entities", self.session_id, title, len(formatted_entities))
+            logger.info("Session %s context overridden by user for slide %s: title='%s', %d entities", self.session_id, target_id, title, len(formatted_entities))
+
+    def get_all_slides(self) -> List[Dict[str, Any]]:
+        """Returns all detected/saved slides in this session."""
+        with self.lock:
+            return sorted(list(self.slides_registry.values()), key=lambda s: s.get("slide_id", 0))
 
     def select_visual_context(
         self,
@@ -851,11 +889,20 @@ class LiveVisionService:
         session_id: str,
         title: str,
         entities: List[Union[str, Dict[str, Any]]],
-        source_epoch: Optional[int] = None
+        source_epoch: Optional[int] = None,
+        slide_id: Optional[int] = None
     ) -> Dict[str, Any]:
         session = self.get_session(session_id, source_epoch or 0)
-        session.override_context(title, entities)
+        session.override_context(title, entities, slide_id=slide_id)
         return session.get_snapshot()
+
+    def get_slide_history(self, session_id: str, source_epoch: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Returns all slides stored in this session's registry."""
+        with self._sessions_lock:
+            if session_id not in self._sessions:
+                return []
+            session = self._sessions[session_id]
+        return session.get_all_slides()
 
     def _dispatch_job(self, job: OCRJob):
         """Puts candidate into worker queue; drops older waiting candidate if full."""
@@ -980,6 +1027,28 @@ class LiveVisionService:
                     session.slide_counter += 1
                     slide_id = session.slide_counter
                     slide_revision = 1
+
+            if status == "READY":
+                existing = session.slides_registry.get(slide_id)
+                if existing and existing.get("is_user_edited"):
+                    title = existing.get("title", title)
+                    user_texts = {e["text"].lower() for e in existing.get("entities", [])}
+                    merged = list(existing.get("entities", []))
+                    for ent in entities:
+                        if ent["text"].lower() not in user_texts:
+                            merged.append(ent)
+                    entities = merged
+
+                session.slides_registry[slide_id] = {
+                    "slide_id": slide_id,
+                    "slide_revision": slide_revision,
+                    "title": title,
+                    "entities": entities,
+                    "status": "READY",
+                    "content_hash": c_hash,
+                    "captured_client_ms": job.captured_client_ms,
+                    "is_user_edited": bool(existing.get("is_user_edited", False)) if existing else False
+                }
 
             session.slide_revision = slide_revision
             snapshot = SlideSnapshot(

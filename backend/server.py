@@ -119,6 +119,14 @@ class StudioHandler(SimpleHTTPRequestHandler):
             self.send_json(snapshot)
             return
 
+        # Live Vision Slide History Endpoint (All detected slides in session)
+        if url_path == "/api/live/vision/slides":
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            session_id = query.get("session_id", [""])[0] or self.headers.get("X-Session-ID") or "default"
+            slides = LiveVisionService.get_instance().get_slide_history(session_id)
+            self.send_json({"status": "ok", "session_id": session_id, "slides": slides})
+            return
+
         live_files = {"/": "live.html", "/live": "live.html", "/live.js": "live.js",
             "/live-core.js": "live-core.js", "/pcm-worklet.js": "pcm-worklet.js", "/live.css": "live.css", "/floating.css": "floating.css"}
         if url_path in live_files:
@@ -320,6 +328,12 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 except ValueError:
                     source_epoch = 0
                 title = str(payload.get("title", "")).strip()
+                slide_id = payload.get("slide_id")
+                if slide_id is not None:
+                    try:
+                        slide_id = int(slide_id)
+                    except (ValueError, TypeError):
+                        slide_id = None
                 raw_entities = payload.get("entities", [])
                 if isinstance(raw_entities, str):
                     entities = [t.strip() for t in raw_entities.split(",") if t.strip()]
@@ -328,7 +342,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 else:
                     entities = []
 
-                snap = LiveVisionService.get_instance().override_context(session_id, title, entities, source_epoch)
+                snap = LiveVisionService.get_instance().override_context(session_id, title, entities, source_epoch, slide_id=slide_id)
                 self.send_json({"status": "ok", "snapshot": snap})
             except Exception as e:
                 logger.exception("Lỗi khi override vision context: %s", e)
