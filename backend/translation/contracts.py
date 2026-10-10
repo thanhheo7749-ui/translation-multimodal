@@ -33,6 +33,7 @@ class TranslationRequest:
     segment_audio_start_ms: float = 0.0
     segment_audio_end_ms: float = 0.0
     matched_entities: List[str] = field(default_factory=list)
+    source_revision: int = 1
 
 @dataclass
 class TranslationOutcome:
@@ -49,6 +50,9 @@ class TranslationOutcome:
     request_id: str = ""
     session_id: str = ""
     segment_id: Optional[int] = None
+    source_epoch: int = 0
+    source_revision: int = 1
+    operation: str = ""
     visual_context_available: bool = False
     visual_context_used: bool = False
     visual_context_id: str = ""
