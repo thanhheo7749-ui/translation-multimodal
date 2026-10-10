@@ -367,3 +367,56 @@ local_comparison/
 *.safetensors
 *.onnx
 *.bin
+
+# Imported project exclusions
+# Local environments and generated files
+.venv/
+.venv-*/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+.cache/
+.publish-staging/
+
+# Machine configuration, credentials, and agent/vendor installations
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+.agents/
+.codex/
+.aws/
+nature-skills/
+reference_ui/
+tailieuthamkhao/
+
+# Downloaded datasets, models, recordings, and generated experiment artifacts
+data/
+models/
+checkpoints/
+downloads/
+artifacts/
+runtime_logs/
+logs/
+runs/
+local_comparison/
+*.log
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.wav
+*.mp3
+*.flac
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.bin
