@@ -451,7 +451,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
 
             if operation == "translate_local":
                 provider = "local"
-                if model is not None and model != LOCAL_MODEL:
+                if url_path == "/api/live/translate" and model is not None and model != LOCAL_MODEL:
                     self.send_json({"status": "error", "error_code": "invalid_model", "message": "Local request không nhận tên model Gemini."}, 400)
                     return
                 target_model = LOCAL_MODEL
