@@ -1,0 +1,8 @@
+faster-whisper==1.2.1
+transformers==4.51.3
+sentencepiece==0.2.0
+numpy==1.26.4
+rapidocr-onnxruntime==1.4.4
+opencv-python==4.11.0.86
+httpx==0.28.1
+certifi>=2025.1.31

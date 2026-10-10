@@ -1,14 +1,17 @@
 [CmdletBinding()]
-param([switch]$ValidateOnly)
+param(
+    [switch]$ValidateOnly,
+    [string]$Branch = 'feature/live-subtitles-local-first',
+    [string]$CommitMessage = 'feat: implement local-first live subtitles pipeline and Document PiP'
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryUrl = 'https://github.com/thanhheo7749-ui/translation-multimodal.git'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $includeDirectories = @('backend', 'frontend', 'tests', 'scripts', 'docs', 'research', 'experiments')
-$includeRootFiles = @('.gitignore', 'publish_project.cmd', 'diagnose_network.cmd',
-    'diagnose_network.py', 'launch_studio.py', 'run_local_comparison.cmd',
-    'run_studio.cmd', 'start_studio.ps1', 'Project_Plan_Adaptive_Multimodal_Translation.md')
+$includeRootFiles = @('.gitignore', '.dockerignore', 'Dockerfile', 'compose.yaml',
+    'requirements.txt', 'README.md', 'studio.cmd', 'diagnose_network.py', 'Project_Plan_Adaptive_Multimodal_Translation.md')
 $excludedDirectories = @('.git', '.agents', '.codex', '.aws', '.venv', 'venv',
     '__pycache__', '.pytest_cache', 'node_modules', '.cache', '.publish-staging',
     'models', 'checkpoints', 'downloads', 'artifacts', 'runtime_logs', 'logs', 'runs',
@@ -51,7 +54,7 @@ function Add-PublishFile([IO.FileInfo]$File) {
         $File.Name -match '^(id_(rsa|ed25519|dsa|ecdsa)|credentials.*\.json$|service[-_]account.*\.json$)') {
         throw "Credential-like filename rejected: $($File.Name)"
     }
-    if ($File.Extension -notin $textExtensions -and $File.Name -ne '.gitignore') {
+    if ($File.Extension -notin $textExtensions -and $File.Name -notin @('.gitignore', '.dockerignore', 'Dockerfile')) {
         $script:skipped++
         return
     }
@@ -73,8 +76,23 @@ function Add-PublishDirectory([string]$Directory) {
 }
 
 function Invoke-PublishGit([string[]]$GitArguments) {
-    & git @GitArguments
-    if ($LASTEXITCODE -ne 0) { throw "Git failed (exit $LASTEXITCODE): $($GitArguments[0]). No force push or cleanup was attempted." }
+    $pinfo = New-Object System.Diagnostics.ProcessStartInfo
+    $pinfo.FileName = "git"
+    $pinfo.RedirectStandardError = $true
+    $pinfo.RedirectStandardOutput = $true
+    $pinfo.UseShellExecute = $false
+    $pinfo.Arguments = ($GitArguments | ForEach-Object { if ($_ -match '[\s"]') { '"{0}"' -f ($_ -replace '"', '\"') } else { $_ } }) -join ' '
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $pinfo
+    $null = $p.Start()
+    $stdout = $p.StandardOutput.ReadToEnd()
+    $stderr = $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
+    if ($stdout.Trim()) { Write-Host $stdout.Trim() }
+    if ($p.ExitCode -ne 0) {
+        if ($stderr.Trim()) { Write-Host $stderr.Trim() }
+        throw "Git failed (exit $($p.ExitCode)): $($GitArguments[0]). No force push or cleanup was attempted."
+    }
 }
 
 function Assert-NoReparsePath([string]$Path, [string]$Boundary) {
@@ -112,8 +130,7 @@ try {
         exit 0
     }
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git for Windows is required. Install it and rerun in your terminal.' }
-    $suffix = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
-    $branch = "import/translation-project-$suffix"
+    $suffix = (Get-Date -Format 'yyyyMMdd-HHmmss')
     $stagingRoot = Join-Path $projectRoot '.publish-staging'
     $checkout = Join-Path $stagingRoot $suffix
     Assert-NoReparsePath $checkout $projectRoot
@@ -121,16 +138,11 @@ try {
     Write-Host "Cloning $repositoryUrl into $checkout"
     # Authentication is handled normally by Git/Git Credential Manager in the user's terminal.
     Invoke-PublishGit @('clone', '--', $repositoryUrl, $checkout)
-    & git -C $checkout rev-parse --verify --quiet HEAD | Out-Null
-    $hasHead = $LASTEXITCODE -eq 0
-    if (-not $hasHead) {
-        $remoteBranches = @(& git -C $checkout branch -r)
-        if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect cloned remote branches.' }
-        if ($remoteBranches.Count -gt 0) {
-            throw 'Remote contains branches but has no usable default HEAD. Set its default branch on GitHub, then rerun.'
-        }
+    try {
+        Invoke-PublishGit @('-C', $checkout, 'checkout', $Branch)
+    } catch {
+        Invoke-PublishGit @('-C', $checkout, 'checkout', '-b', $Branch)
     }
-    Invoke-PublishGit @('-C', $checkout, 'checkout', '-b', $branch)
     foreach ($relative in $manifest) {
         $source = Join-Path $projectRoot $relative
         $destination = Join-Path $checkout $relative
@@ -153,14 +165,14 @@ try {
     $difference = $LASTEXITCODE
     if ($difference -eq 0) { throw 'No project changes to commit. Nothing was pushed.' }
     if ($difference -ne 1) { throw 'Cannot inspect the staged changes. Nothing was pushed.' }
-    Invoke-PublishGit @('-C', $checkout, 'commit', '-m', 'Import translation multimodal project')
+    Invoke-PublishGit @('-C', $checkout, 'commit', '-m', $CommitMessage)
     $commit = (& git -C $checkout rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Cannot read the created commit.' }
-    Invoke-PublishGit @('-C', $checkout, 'push', '--set-upstream', 'origin', "HEAD:refs/heads/$branch")
+    Invoke-PublishGit @('-C', $checkout, 'push', '--set-upstream', 'origin', "HEAD:refs/heads/$Branch")
     Write-Host "Published repository: $repositoryUrl"
-    Write-Host "Branch: $branch"
+    Write-Host "Branch: $Branch"
     Write-Host "Commit: $commit"
-    Write-Host "Review: https://github.com/thanhheo7749-ui/translation-multimodal/tree/$branch"
+    Write-Host "Review: https://github.com/thanhheo7749-ui/translation-multimodal/tree/$Branch"
     Write-Host "Import checkout retained at: $checkout"
 } catch {
     Write-Error -Message $_.Exception.Message -ErrorAction Continue

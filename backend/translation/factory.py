@@ -15,7 +15,9 @@ def get_translator(provider_type: str = None) -> BaseTranslator:
         return MockTranslator()
     elif p_type in ["gemini", "google", "cloud"]:
         return GeminiTranslator()
-    elif p_type in ["local", "qwen", "gpu"]:
+    elif p_type == "qwen":
+        raise ValueError("Qwen is not implemented; select local for the NLLB engine")
+    elif p_type in ["local", "nllb", "gpu"]:
         return LocalLLMTranslator()
     else:
         # Default to mock

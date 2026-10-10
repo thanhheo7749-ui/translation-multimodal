@@ -4,11 +4,13 @@ import json
 import os
 import re
 import time
+from typing import Optional
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from backend.translation.contracts import TranslationRequest
+from backend.translation.nllb_engine import MODEL as LOCAL_MODEL, get_local_engine
 from backend.translation.network_support import classify_network_error, verified_ssl_context
 
 
@@ -24,6 +26,9 @@ class TranslationOutcome:
     diagnostic: dict = field(default_factory=dict)
     phase: str = "translation"
     model: str = ""
+    request_id: str = ""
+    session_id: str = ""
+    segment_id: Optional[int] = None
 
     def to_dict(self):
         return asdict(self)
@@ -32,23 +37,34 @@ class TranslationOutcome:
 class LiveTranslationService:
     def __init__(self):
         self.provider = os.getenv("TRANSLATION_PROVIDER", "google-demo").strip().lower()
-        self.model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+        self.model = LOCAL_MODEL if self.provider == "local" else self.gemini_model
         self.api_key = os.getenv("GEMINI_API_KEY", "")
         self.generation_mode = os.getenv("GEMINI_GENERATION_MODE", "stream")
 
     def info(self):
-        supported = self.provider in ("gemini", "google-demo")
-        return {"provider": self.provider, "model": self.model if self.provider == "gemini" else None,
-            "configured": supported and (self.provider != "gemini" or bool(self.api_key)),
-            "context_supported": self.provider == "gemini", "network_verified": False,
-            "generation_mode": self.generation_mode, "build": "2026-10-08-stream-1",
-            "note": "google-demo chỉ để thử dịch văn bản; không hỗ trợ Fusion Prompt hoặc dùng làm benchmark đa phương thức." if self.provider == "google-demo" else "Cần API key và kết nối mạng; model phải có quyền truy cập trong API project."}
+        gemini_model = self.model if (self.model and self.model != LOCAL_MODEL) else self.gemini_model
+        gemini_configured = bool(self.api_key.strip()) if hasattr(self.api_key, 'strip') else bool(self.api_key)
+        supported = self.provider in ("gemini", "google-demo", "local")
+        return {
+            "provider": self.provider,
+            "local_model": LOCAL_MODEL,
+            "gemini_model": gemini_model,
+            "gemini_configured": gemini_configured,
+            "context_supported": self.provider == "gemini",
+            "generation_mode": self.generation_mode,
+            "build": "2026-10-08-stream-1",
+            "model": LOCAL_MODEL if self.provider == "local" else gemini_model if self.provider == "gemini" else None,
+            "configured": supported and (self.provider != "gemini" or gemini_configured),
+            "network_verified": False,
+            "note": "Local NLLB; first use loads model weights. Text translation only; no visual context support." if self.provider == "local" else "google-demo chỉ để thử dịch văn bản; không hỗ trợ Fusion Prompt hoặc dùng làm benchmark đa phương thức." if self.provider == "google-demo" else "Cần API key và kết nối mạng; model phải có quyền truy cập trong API project."
+        }
 
     def _configuration_error(self, outcome):
         if not self.api_key:
             outcome.error_code, outcome.message = "missing_api_key", "Chưa cấu hình GEMINI_API_KEY trên máy chạy server."
             return True
-        if not re.fullmatch(r"[a-zA-Z0-9._-]+", self.model):
+        if self.model == LOCAL_MODEL or not re.fullmatch(r"[a-zA-Z0-9._-]+", self.model):
             outcome.error_code, outcome.message = "invalid_model", "Tên GEMINI_MODEL không hợp lệ."
             return True
         return False
@@ -130,8 +146,15 @@ class LiveTranslationService:
 
     def translate(self, request: TranslationRequest) -> TranslationOutcome:
         started = time.perf_counter()
-        outcome = TranslationOutcome(status="error", provider=self.provider, context_supported=self.provider == "gemini")
-        outcome.model = self.model if self.provider == "gemini" else ""
+        outcome = TranslationOutcome(
+            status="error",
+            provider=self.provider,
+            context_supported=self.provider == "gemini",
+            request_id=request.request_id,
+            session_id=request.session_id,
+            segment_id=request.segment_id,
+        )
+        outcome.model = LOCAL_MODEL if self.provider == "local" else self.model if self.provider == "gemini" else ""
         stage = "configuration"
         speech = request.speech_text.strip()
         try:
@@ -139,14 +162,31 @@ class LiveTranslationService:
                 outcome.error_code, outcome.message = "empty_input", "Hãy nhập một câu tiếng Anh."
                 return outcome
             if self.provider == "gemini":
+                outcome.model = self.model
                 if self._configuration_error(outcome):
                     return outcome
-                # Short, invariant instructions; evidence remains data rather than instructions.
-                prompt = "Translate the English speech into natural Vietnamese. Return only the translation. Use context only to resolve meaning; do not add facts from context. Preserve proper names.\n" + json.dumps({
-                    "speech": request.speech_text, "previous_context": request.previous_context,
-                    "slide_title": request.slide_title, "slide_entities": request.relevant_entities}, ensure_ascii=False)
+                if request.initial_translation and request.initial_translation.strip():
+                    prompt = (
+                        "Bạn là chuyên gia hiệu chỉnh phụ đề trực tiếp. "
+                        "Dưới đây là câu tiếng Anh gốc, bản dịch ban đầu và ngữ cảnh trước đó. "
+                        "Hãy hiệu chỉnh bản dịch tiếng Việt sao cho ngắn gọn, tự nhiên, chuẩn văn phong hội thảo/thuyết trình, "
+                        "bảo toàn ý câu, giữ nguyên tên riêng và các con số, không thêm thông tin. "
+                        "Chỉ trả về duy nhất một câu dịch tiếng Việt đã hiệu chỉnh:\n"
+                        + json.dumps({
+                            "speech": speech,
+                            "initial_translation": request.initial_translation.strip(),
+                            "previous_context": request.previous_context,
+                            "slide_title": request.slide_title,
+                            "slide_entities": request.relevant_entities
+                        }, ensure_ascii=False)
+                    )
+                else:
+                    # Expert simultaneous interpreter prompt; natural spoken tone.
+                    prompt = "Dịch đoạn nói tiếng Anh sau sang tiếng Việt tự nhiên, uyển chuyển, chuẩn văn phong hội thảo/thuyết trình, tuyệt đối không dịch máy móc theo từng từ. Chỉ trả về duy nhất câu dịch tiếng Việt:\n" + json.dumps({
+                        "speech": speech, "previous_context": request.previous_context,
+                        "slide_title": request.slide_title, "slide_entities": request.relevant_entities}, ensure_ascii=False)
                 payload = {"contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0, "maxOutputTokens": 2048}}
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 256}}
                 if self.model == "gemini-3.8-flash":
                     payload["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "low"}
                 elif self.model == "gemini-3.5-flash-lite":
@@ -173,6 +213,17 @@ class LiveTranslationService:
                 if finish != "STOP":
                     outcome.error_code, outcome.message = "incomplete_generation", "Provider chưa trả bản dịch đầy đủ."
                     return outcome
+            elif self.provider == "local":
+                outcome.model = LOCAL_MODEL
+                outcome.context_supported = False
+                try:
+                    result = get_local_engine().translate(speech)
+                except Exception as error:
+                    outcome.error_code = "local_model_error"
+                    outcome.message = "Local model could not translate. Check model cache, GPU and dependencies."
+                    outcome.diagnostic = {"exception_type": type(error).__name__}
+                    return outcome
+                translated = result["translation"]
             elif self.provider == "google-demo":
                 url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q=" + urllib.parse.quote(speech)
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -180,7 +231,7 @@ class LiveTranslationService:
                     data = json.loads(response.read().decode("utf-8"))
                 translated = "".join(part[0] for part in data[0] if part[0]).strip()
             else:
-                outcome.error_code, outcome.message = "unsupported_provider", "Chọn TRANSLATION_PROVIDER=gemini hoặc google-demo; local/mock chưa hỗ trợ dịch thật trên web."
+                outcome.error_code, outcome.message = "unsupported_provider", "Chọn TRANSLATION_PROVIDER=local, gemini hoặc google-demo."
                 return outcome
             if not translated:
                 outcome.error_code, outcome.message = "empty_response", "Provider trả kết quả rỗng."

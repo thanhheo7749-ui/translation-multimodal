@@ -2,16 +2,20 @@
 NCKH Multimodal Video Translation Studio Server
 Lightweight Python HTTP server supporting Byte-Range streaming for video,
 REST API for hardware telemetry and Visual Working Memory data.
-Zero additional dependencies required.
+Python dependencies and CUDA runtime are packaged in Docker.
 """
 
 import sys
 import os
 import re
 import json
+import time
+import logging
 import subprocess
 import threading
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+
+logger = logging.getLogger("studio.server")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -21,6 +25,7 @@ from backend.live_pipeline import LivePipelineManager
 from backend.translation.live_service import LiveTranslationService
 from backend.translation.contracts import TranslationRequest
 from backend.translation.diagnostic_log import save_attempt
+from backend.translation.nllb_engine import MODEL as LOCAL_MODEL, get_local_engine
 from backend.asr.whisper_engine import LiveWhisperEngine
 
 if sys.platform == "win32":
@@ -49,6 +54,23 @@ def get_vram_usage():
     except Exception:
         return 233, 6144
 
+def save_distillation_sample(source: str, target: str, context: str = ""):
+    if os.getenv("ENABLE_DISTILLATION_LOG", "0") != "1":
+        return
+    try:
+        distill_file = os.path.join(BASE_DIR, "data", "distillation_dataset.jsonl")
+        os.makedirs(os.path.dirname(distill_file), exist_ok=True)
+        record = {
+            "source": source.strip(),
+            "target": target.strip(),
+            "context": context.strip() if context else "",
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        with open(distill_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.warning("Failed to save distillation sample: %s", e)
+
 class StudioHandler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
@@ -67,7 +89,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
             self.send_json(info)
             return
         live_files = {"/": "live.html", "/live": "live.html", "/live.js": "live.js",
-            "/live-core.js": "live-core.js", "/pcm-worklet.js": "pcm-worklet.js", "/live.css": "live.css"}
+            "/live-core.js": "live-core.js", "/pcm-worklet.js": "pcm-worklet.js", "/live.css": "live.css", "/floating.css": "floating.css"}
         if url_path in live_files:
             filename = live_files[url_path]
             content_type = "text/html; charset=utf-8" if filename.endswith(".html") else ("text/css; charset=utf-8" if filename.endswith(".css") else "application/javascript; charset=utf-8")
@@ -147,15 +169,21 @@ class StudioHandler(SimpleHTTPRequestHandler):
         global ACTIVE_VIDEO
         url_path = self.path.split("?")[0]
         origin = self.headers.get("Origin")
-        if origin and origin not in {f"http://localhost:{self.server.server_port}", f"http://127.0.0.1:{self.server.server_port}"}:
+        allowed_origins = {f"http://localhost:{self.server.server_port}", f"http://127.0.0.1:{self.server.server_port}"}
+        allowed_origins.update(value.strip() for value in os.getenv('STUDIO_ALLOWED_ORIGINS', '').split(',') if value.strip())
+        if origin and origin not in allowed_origins:
             self.send_json({"status": "error", "message": "Nguồn request không được phép."}, 403)
             return
         if url_path == "/api/live/warmup":
             try:
                 engine = LiveWhisperEngine.get_instance()
-                self.send_json({"status": "ok", "model": "base.en CPU int8", "init_time_ms": engine.init_time_ms})
+                try:
+                    get_local_engine().translate('Hello.')
+                except Exception:
+                    pass
+                self.send_json({"status": "ok", "model": f"base.en {engine.device} {engine.compute_type}", "init_time_ms": engine.init_time_ms})
             except Exception:
-                self.send_json({"status": "error", "message": "Không nạp được ASR từ model cache. Xem console server; không tự tải model mới."}, 503)
+                self.send_json({"status": "error", "message": "Không nạp được model ASR hoặc dịch local. Kiểm tra log, model cache, GPU và kết nối tải model."}, 503)
             return
         if url_path == "/api/live/asr":
             try:
@@ -181,7 +209,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
                 model = payload.get("model") if isinstance(payload, dict) else None
                 if model is not None:
-                    if not isinstance(model, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", model):
+                    if not isinstance(model, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", model) or model == LOCAL_MODEL:
                         raise ValueError("invalid_model")
                     service.model = model
             except (ValueError, UnicodeError):
@@ -191,33 +219,133 @@ class StudioHandler(SimpleHTTPRequestHandler):
             save_attempt(result, service.model)
             self.send_json(result.to_dict(), 200 if result.status == "ok" else 502)
             return
-        if url_path == "/api/translate-test":
+        if url_path in ("/api/live/translate", "/api/translate-test"):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 if not 0 < length <= 16384:
                     raise ValueError("invalid_length")
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                text = payload.get("text") if isinstance(payload, dict) else None
-                if not isinstance(text, str) or not text.strip() or len(text) > 4000:
-                    raise ValueError("invalid_text")
-                model = payload.get("model")
-                mode = payload.get("mode", "stream")
-                if model is not None and (not isinstance(model, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", model)):
-                    raise ValueError("invalid_model")
-                if mode not in ("stream", "json"):
-                    raise ValueError("invalid_mode")
-                previous_context = payload.get("previous_context", "")
-                if not isinstance(previous_context, str) or len(previous_context) > 8000:
-                    raise ValueError("invalid_context")
+                if not isinstance(payload, dict):
+                    raise ValueError("invalid_payload")
             except (ValueError, UnicodeError):
+                self.send_json({"status": "error", "error_code": "invalid_input", "message": "Dữ liệu JSON không hợp lệ hoặc quá dài."}, 400)
+                return
+
+            text = payload.get("text")
+            if not isinstance(text, str) or not text.strip() or len(text) > 4000:
                 self.send_json({"status": "error", "error_code": "invalid_input", "message": "Nhập câu tiếng Anh, tối đa 4000 ký tự."}, 400)
                 return
+
+            session_id = payload.get("session_id", "")
+            if not isinstance(session_id, str) or len(session_id) > 128:
+                self.send_json({"status": "error", "error_code": "invalid_input", "message": "session_id không hợp lệ."}, 400)
+                return
+
+            segment_id = payload.get("segment_id")
+            if segment_id is not None and not isinstance(segment_id, int):
+                self.send_json({"status": "error", "error_code": "invalid_input", "message": "segment_id phải là số nguyên hoặc null."}, 400)
+                return
+
+            previous_context = payload.get("previous_context", "")
+            if not isinstance(previous_context, str) or len(previous_context) > 8000:
+                self.send_json({"status": "error", "error_code": "invalid_input", "message": "previous_context tối đa 8000 ký tự."}, 400)
+                return
+
+            initial_translation = payload.get("initial_translation", "")
+            if not isinstance(initial_translation, str) or len(initial_translation) > 4000:
+                self.send_json({"status": "error", "error_code": "invalid_input", "message": "initial_translation tối đa 4000 ký tự."}, 400)
+                return
+
+            mode = payload.get("mode", "stream")
+            if mode not in ("stream", "json"):
+                self.send_json({"status": "error", "error_code": "invalid_input", "message": "Chọn mode stream hoặc json."}, 400)
+                return
+
+            model = payload.get("model")
+            operation = payload.get("operation")
+
+            if url_path == "/api/live/translate":
+                if operation not in ("translate_local", "translate_gemini", "refine_gemini"):
+                    self.send_json({"status": "error", "error_code": "invalid_operation", "message": "Operation không hợp lệ. Chọn translate_local, translate_gemini hoặc refine_gemini."}, 400)
+                    return
+            else:
+                if not operation:
+                    req_provider = payload.get("provider")
+                    if req_provider == "local":
+                        operation = "translate_local"
+                    elif req_provider == "gemini":
+                        operation = "refine_gemini" if (initial_translation and initial_translation.strip()) else "translate_gemini"
+                    elif req_provider == "google-demo":
+                        operation = "translate_google_demo"
+                    elif model is not None and model != LOCAL_MODEL:
+                        operation = "translate_gemini"
+                    else:
+                        service_default = LiveTranslationService().provider
+                        if service_default == "local":
+                            operation = "translate_local"
+                        elif service_default == "gemini":
+                            operation = "refine_gemini" if (initial_translation and initial_translation.strip()) else "translate_gemini"
+                        else:
+                            operation = "translate_google_demo"
+                elif operation not in ("translate_local", "translate_gemini", "refine_gemini", "translate_google_demo"):
+                    self.send_json({"status": "error", "error_code": "invalid_operation", "message": "Operation không hợp lệ."}, 400)
+                    return
+
+            if operation == "translate_local":
+                provider = "local"
+                if model is not None and model != LOCAL_MODEL:
+                    self.send_json({"status": "error", "error_code": "invalid_model", "message": "Local request không nhận tên model Gemini."}, 400)
+                    return
+                target_model = LOCAL_MODEL
+                used_context = ""
+                used_initial_trans = ""
+            elif operation in ("translate_gemini", "refine_gemini"):
+                provider = "gemini"
+                if model is not None:
+                    if model == LOCAL_MODEL or not re.fullmatch(r"[a-zA-Z0-9._-]+", model):
+                        self.send_json({"status": "error", "error_code": "invalid_model", "message": "Gemini request không nhận tên model NLLB."}, 400)
+                        return
+                    target_model = model
+                else:
+                    target_model = None
+                used_context = previous_context
+                used_initial_trans = initial_translation if operation == "refine_gemini" else ""
+            else:
+                provider = "google-demo"
+                target_model = None
+                used_context = ""
+                used_initial_trans = ""
+
+            request_id = payload.get("request_id")
+            if request_id is not None and (not isinstance(request_id, str) or len(request_id) > 128):
+                self.send_json({"status": "error", "error_code": "invalid_input", "message": "request_id không hợp lệ."}, 400)
+                return
+            if not request_id:
+                if session_id and segment_id is not None:
+                    request_id = f"{session_id}:{segment_id}:{operation}"
+                else:
+                    request_id = "web-live" if url_path == "/api/translate-test" else f"req-{int(time.time()*1000)}"
+
             service = LiveTranslationService()
-            if model is not None:
-                service.model = model
+            service.provider = provider
+            if target_model is not None:
+                service.model = target_model
             service.generation_mode = mode
-            result = service.translate(TranslationRequest(request_id="web-live", speech_text=text, previous_context=previous_context))
+
+            req = TranslationRequest(
+                request_id=request_id,
+                speech_text=text,
+                previous_context=used_context,
+                session_id=session_id,
+                segment_id=segment_id,
+                initial_translation=used_initial_trans
+            )
+            result = service.translate(req)
             save_attempt(result, service.model)
+
+            if service.provider == "gemini" and result.status == "ok" and result.translated_text and os.getenv("ENABLE_DISTILLATION_LOG", "0") == "1":
+                save_distillation_sample(text, result.translated_text, used_context)
+
             self.send_json(result.to_dict(), 200 if result.status == "ok" else 502)
             return
         if url_path == "/api/upload":
@@ -279,6 +407,8 @@ class StudioHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "video/mp4")
             self.send_header("Content-Length", str(file_size))
             self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "*")
             self.end_headers()
             with open(filepath, "rb") as f:
                 self.copy_chunks(f, self.wfile)
@@ -302,6 +432,8 @@ class StudioHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
         self.send_header("Content-Length", str(content_length))
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "*")
         self.end_headers()
 
         with open(filepath, "rb") as f:
@@ -330,7 +462,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 break
 
 def run_server():
-    server_address = ('127.0.0.1', PORT)
+    server_address = (os.getenv('STUDIO_HOST', '127.0.0.1'), PORT)
     httpd = ThreadingHTTPServer(server_address, StudioHandler)
     print("=" * 65)
     print(f" [NCKH STUDIO] Server đang chạy tại: http://localhost:{PORT}")

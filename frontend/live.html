@@ -1,31 +1,53 @@
 <!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dịch tab trực tiếp Anh–Việt</title><link rel="stylesheet" href="/live.css"></head>
 <body><main>
-<header><div><span class="eyebrow">NCKH · thử nghiệm âm thanh trực tiếp</span><h1>Nghe tới đâu, dịch theo tới đó</h1><p>Phát video NVIDIA bên dưới để thử. Phụ đề cập nhật theo âm thanh đang phát, có độ trễ nhận dạng và dịch.</p></div><a href="/translation-test">Kiểm tra engine</a></header>
-<section class="video-demo">
-<h2>Jensen Huang · NVIDIA GTC Taipei</h2>
-<div id="video-stage" class="video-stage">
-<video id="demo-video" controls controlslist="nofullscreen" playsinline preload="metadata" src="/api/nvidia-video"></video>
-<div id="video-captions" class="video-captions" hidden><span id="caption-note"></span><p id="caption-vi"></p></div>
-</div>
-<button id="demo-start" disabled>Phát video NVIDIA và dịch</button>
-<button id="video-fullscreen" class="secondary">Toàn màn hình kèm phụ đề</button>
-<p id="caption-health" class="muted">Phụ đề xuất hiện khi có kết quả; độ trễ được ghi ngay trên phụ đề.</p>
-<p class="muted">Chỉ âm thanh đã phát mới được gửi để nhận dạng và dịch. Có thể tạm dừng bằng nút trên video. Khi tua, phiên dịch dừng; bấm nút trên để bắt đầu phiên mới tại vị trí đã chọn.</p>
-</section>
+<header><div><span class="eyebrow">NCKH · thử nghiệm âm thanh trực tiếp</span><h1>Nghe tới đâu, dịch theo tới đó</h1><p>Phát video NVIDIA bên dưới hoặc chia sẻ tab trình duyệt. Phụ đề cập nhật theo âm thanh đang phát, có độ trễ nhận dạng và dịch.</p></div><a href="/translation-test">Kiểm tra engine</a></header>
 <section class="toolbar">
 <span class="language">Tiếng Anh → Tiếng Việt</span>
-<button id="share" disabled>Chia sẻ tab và bắt đầu</button><button id="mic" class="secondary" disabled>Thử bằng micro</button>
-<button id="stop" class="danger" disabled>Dừng thu</button><button id="pip" class="secondary">Mở cửa sổ nổi</button>
-<label>Cập nhật nhận dạng <select id="chunk"><option value="1500" selected>Mỗi 1,5 giây</option><option value="2000">Mỗi 2 giây · giảm tải</option></select></label>
+<button id="share" disabled>Chia sẻ âm thanh Tab</button><button id="pip" class="secondary">Mở phụ đề nổi (PiP)</button>
+<button id="mic" class="secondary" disabled>Thử bằng micro</button><button id="stop" class="danger" disabled>Dừng thu</button>
+<label>Động cơ dịch <select id="engine-mode"><option value="local" selected>⚡ Local: Local NLLB siêu tốc</option><option value="hybrid">🚀 Hybrid: Local trước (150ms) + Gemini hiệu chỉnh bất đồng bộ ở nền</option><option value="gemini">🧠 Gemini: Gemini Cloud trực tiếp</option></select></label>
+<label>Chu kỳ nhận dạng <select id="chunk"><option value="1000" selected>Mỗi 1,0 giây</option><option value="1500">Mỗi 1,5 giây</option></select></label>
 </section>
-<div class="notice"><strong id="state">Đang chuẩn bị…</strong><span id="source">Chọn tab Chrome và bật “Share tab audio”.</span><div class="meter"><div id="level"></div></div><span id="capture-clock">Đã thu 0,0 giây</span></div>
-<p id="config" class="muted">Đang đọc cấu hình server…</p>
-<p id="error" role="alert"></p>
-<p id="asr-draft" class="muted">Nhận dạng nháp: đang chờ âm thanh.</p>
-<section class="current"><div><span class="eyebrow">Lời nói gốc</span><p id="current-en">Chưa có lời nói.</p></div><div><span class="eyebrow">Bản dịch tiếng Việt</span><p id="current-vi">Bản dịch sẽ xuất hiện tại đây.</p></div><span id="current-status" class="muted"></span></section>
-<section class="metrics"><div><span>Hàng đợi</span><strong id="queue">0 đoạn</strong></div><div><span>ASR gần nhất</span><strong id="asr">Chưa đo</strong></div><div><span>Dịch gần nhất</span><strong id="mt">Chưa đo</strong></div><div><span>Trễ sau cuối đoạn thu *</span><strong id="lag">Chưa đo</strong></div><div><span>Đoạn bỏ qua</span><strong id="dropped">0</strong></div></section>
-<section class="history-head"><h2>Lịch sử xử lý theo thời gian</h2><button id="export" class="secondary" disabled>Xuất log phiên</button></section>
-<div id="timeline" aria-live="polite"><p class="muted">Mở video ở một tab khác, rồi bấm Chia sẻ tab và bắt đầu.</p></div>
+<p id="pip-hint" class="pip-hint">💡 <strong>Hướng dẫn:</strong> Bấm <strong>Chia sẻ âm thanh Tab</strong> → Chọn tab Chrome (YouTube/Meet) và nhớ bật <strong>"Chia sẻ âm thanh của thẻ"</strong>. Bấm <strong>Mở phụ đề nổi (PiP)</strong> để ghim hộp phụ đề nổi trên màn hình khi chuyển tab.</p>
+
+<div class="workspace-grid">
+  <!-- CỘT TRÁI: VIDEO + NHẬN DẠNG HIỆN TẠI + CHỈ SỐ -->
+  <div class="main-column">
+    <section class="video-demo">
+      <h2>Jensen Huang · NVIDIA GTC Taipei</h2>
+      <div id="video-stage" class="video-stage">
+        <video id="demo-video" controls controlslist="nofullscreen" playsinline preload="auto" crossorigin="anonymous" src="/api/nvidia-video"></video>
+        <div id="video-captions" class="video-captions" hidden><span id="caption-note"></span><p id="caption-vi"></p></div>
+      </div>
+      <button id="demo-start" disabled>Phát video NVIDIA và dịch</button>
+      <button id="video-fullscreen" class="secondary">Toàn màn hình kèm phụ đề</button>
+      <p id="caption-health" class="muted">Phụ đề xuất hiện khi có kết quả; độ trễ được ghi ngay trên phụ đề.</p>
+      <p class="muted">Chỉ âm thanh đã phát mới được gửi để nhận dạng và dịch. Có thể tạm dừng bằng nút trên video. Khi tua, phiên dịch dừng; bấm nút trên để bắt đầu phiên mới tại vị trí đã chọn.</p>
+    </section>
+
+    <div class="notice"><strong id="state">Đang chuẩn bị…</strong><span id="source">Chọn tab Chrome và bật “Share tab audio”.</span><div class="meter"><div id="level"></div></div><span id="capture-clock">Đã thu 0,0 giây</span></div>
+    <p id="config" class="muted">Đang đọc cấu hình server…</p>
+    <p id="error" role="alert"></p>
+    <p id="asr-draft" class="muted">Nhận dạng nháp: đang chờ âm thanh.</p>
+    <section class="current"><div><span class="eyebrow">Lời nói gốc</span><p id="current-en">Chưa có lời nói.</p></div><div><span class="eyebrow">Bản dịch tiếng Việt</span><p id="current-vi">Bản dịch sẽ xuất hiện tại đây.</p></div><span id="current-status" class="muted"></span></section>
+    <section class="metrics"><div><span>Hàng đợi</span><strong id="queue">0 đoạn</strong></div><div><span>ASR gần nhất</span><strong id="asr">Chưa đo</strong></div><div><span>Dịch gần nhất</span><strong id="mt">Chưa đo</strong></div><div><span>Trễ sau cuối đoạn thu *</span><strong id="lag">Chưa đo</strong></div><div><span>Đoạn bỏ qua</span><strong id="dropped">0</strong></div></section>
+  </div>
+
+  <!-- CỘT PHẢI: LOG DỊCH THUẬT & LỊCH SỬ HỘI THOẠI -->
+  <aside class="sidebar-column">
+    <div class="sidebar-sticky">
+      <section class="history-head">
+        <div class="history-title">
+          <h2>Nhật ký dịch thuật</h2>
+          <span id="log-count" class="log-count">0 đoạn</span>
+        </div>
+        <button id="export" class="secondary" disabled>Xuất log</button>
+      </section>
+      <div id="timeline" aria-live="polite"><p class="muted empty-note">Chưa có lịch sử. Phát âm thanh hoặc nói để xem nhật ký dịch tại đây.</p></div>
+    </div>
+  </aside>
+</div>
+
 <footer><p>* Thời gian từ lúc trang nhận gói âm thanh cuối của đoạn đến khi hiển thị bản dịch; gồm chờ hàng đợi, ASR, request dịch và truyền kết quả. Chưa phải phép đo từ cuối lời nói gốc hoặc timestamp của YouTube.</p><p>Phiên này thử audio → ASR → dịch. OCR thích ứng chưa bật. Âm thanh gửi tới server local để nhận dạng; văn bản và ngữ cảnh gửi tới provider dịch. Bản xuất log chứa transcript/bản dịch của phiên, không chứa API key.</p><a href="/studio">Thử video tệp</a></footer>
 </main><script src="/live-core.js"></script><script src="/live.js"></script></body></html>

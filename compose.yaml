@@ -1,0 +1,33 @@
+name: translation-multimodal
+services:
+  studio:
+    build: .
+    image: translation-multimodal:local
+    init: true
+    gpus: all
+    ports:
+      - "127.0.0.1:${STUDIO_HTTP_PORT:-8004}:8000"
+    environment:
+      TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-local}
+      LOCAL_DEVICE: cuda
+      WHISPER_DEVICE: cuda
+      WHISPER_BEAM_SIZE: "1"
+      LD_LIBRARY_PATH: /opt/conda/lib/python3.11/site-packages/nvidia/cublas/lib:/opt/conda/lib/python3.11/site-packages/nvidia/cudnn/lib
+      ALLOW_MODEL_DOWNLOAD: "1"
+      STUDIO_ALLOWED_ORIGINS: http://localhost:${STUDIO_HTTP_PORT:-8004},http://127.0.0.1:${STUDIO_HTTP_PORT:-8004}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      - ./models:/models
+      - ./data:/app/data
+      - ./experiments/runtime_logs:/app/experiments/runtime_logs
+      - ./experiments/local_comparison:/app/experiments/local_comparison
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/translation-status', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

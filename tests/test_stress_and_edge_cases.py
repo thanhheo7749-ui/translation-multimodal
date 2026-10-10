@@ -117,13 +117,14 @@ class TestStressAndEdgeCases(unittest.IsolatedAsyncioTestCase):
         self.assertIn("GEMINI_API_KEY chưa cấu hình", resp.translated_text)
         self.assertEqual(resp.request_id, "g1")
 
-    async def test_local_llm_skeleton_does_not_crash(self):
-        """Edge Case 8: LocalLLMTranslator returns structured output without crashing."""
-        local_llm = LocalLLMTranslator(model_path="Qwen/Qwen2.5-1.5B-Instruct")
-        local_llm.load_model()
+    async def test_local_provider_propagates_unavailable_model(self):
+        """Missing local weights must never masquerade as translated output."""
+        from unittest.mock import patch
+        local_llm = LocalLLMTranslator()
         req = TranslationRequest(request_id="loc1", speech_text="Deep learning computing")
-        resp = await local_llm.translate(req)
-        self.assertIn("Qwen2.5-1.5B-Instruct", resp.translated_text)
+        with patch('backend.translation.local_provider.get_local_engine', side_effect=RuntimeError('unavailable')):
+            with self.assertRaises(RuntimeError):
+                await local_llm.translate(req)
 
 if __name__ == "__main__":
     unittest.main()

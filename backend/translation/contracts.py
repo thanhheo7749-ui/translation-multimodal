@@ -25,6 +25,9 @@ class TranslationRequest:
     relevant_entities: List[str] = field(default_factory=list)
     previous_context: str = ""
     deadline_budget_ms: float = 350.0
+    session_id: str = ""
+    segment_id: Optional[int] = None
+    initial_translation: str = ""
 
 @dataclass
 class TranslationResponse:

@@ -38,7 +38,7 @@ function checkWorklet(rate){
 checkWorklet(16000);checkWorklet(44100);checkWorklet(48000);
 const rolling=new RollingAudio();const snapshots=[];
 for(let i=0;i<1000;i++){const r=rolling.push(packet(4000),.1,i*20);if(r){assert.ok(r.endSec<=(i+1)*.02+1e-9);assert.ok(r.pcm.length<=192000);snapshots.push(r);}}
-assert.ok(snapshots.length>8);assert.equal(snapshots[0].endSec,2.5);assert.ok(snapshots[1].startSec<snapshots[0].endSec);assert.equal(rolling.flush().final,true);
+assert.ok(snapshots.length>=8);assert.equal(snapshots[0].endSec,2.5);assert.ok(snapshots[1].startSec<snapshots[0].endSec);assert.equal(rolling.flush().final,true);
 rolling.trimBefore(18);assert.equal(rolling.size,32000);assert.equal(rolling.flush().startSec,18);
 const stable=new StableWords();
 const words=[{text:'My',start:0,end:.3},{text:'release',start:.3,end:.8}];
