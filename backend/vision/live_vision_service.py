@@ -879,12 +879,18 @@ class LiveVisionService:
 
             entities = []
             if ocr_result:
+                seen_texts = set()
                 for item in ocr_result:
                     box, text, score = item[0], item[1].strip(), float(item[2])
-                    if score >= 0.6 and len(text) > 1:
+                    norm_text = re.sub(r"\s+", " ", text).strip()
+                    if score >= 0.6 and len(norm_text) > 1:
+                        lower_t = norm_text.lower()
+                        if lower_t in seen_texts:
+                            continue
+                        seen_texts.add(lower_t)
                         clean_box = [[round(float(coord), 1) for coord in pt] for pt in box]
                         entities.append({
-                            "text": text,
+                            "text": norm_text,
                             "score": round(score, 3),
                             "box": clean_box
                         })

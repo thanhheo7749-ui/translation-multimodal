@@ -68,12 +68,12 @@ function getCardBadge(row) {
   };
 }
 
-function renderEntityTags(container, entities, isMic) {
+function renderEntityTags(container, entities, isMic, titleText = '') {
   if (!container) return;
   const key = isMic
     ? '__mic__'
     : (entities && entities.length
-        ? entities.map(e => (typeof e === 'string' ? e : (e.text || e.label || ''))).filter(Boolean).join('|')
+        ? entities.map(e => (typeof e === 'string' ? e : (e.text || e.label || ''))).filter(Boolean).join('|') + '::' + String(titleText || '')
         : '__empty__');
   if (container._renderedKey === key) return;
   container._renderedKey = key;
@@ -94,18 +94,28 @@ function renderEntityTags(container, entities, isMic) {
       return;
     }
     const tags = [];
+    const seen = new Set();
+    const cleanTitle = (titleText || '').trim().toLowerCase().replace(/\s+/g, '');
     for (const ent of entities) {
       const text = typeof ent === 'string' ? ent : (ent.text || ent.label || '');
-      if (!text) continue;
+      const trimmed = text.trim();
+      if (!trimmed || trimmed.length <= 1) continue;
+      const lower = trimmed.toLowerCase();
+      const compact = lower.replace(/\s+/g, '');
+      // Bỏ qua nếu từ khóa trùng với tiêu đề slide đang hiển thị ở trên
+      if (cleanTitle && (compact === cleanTitle || lower === (titleText || '').trim().toLowerCase())) continue;
+      // Khử trùng lặp từ khóa
+      if (seen.has(compact)) continue;
+      seen.add(compact);
       const tag = document.createElement('span');
       tag.className = 'entity-badge';
-      tag.textContent = text;
+      tag.textContent = trimmed;
       tags.push(tag);
     }
     if (!tags.length) {
       const tag = document.createElement('span');
       tag.className = 'entity-badge placeholder';
-      tag.textContent = 'Chưa có từ khóa';
+      tag.textContent = 'Chưa có từ khóa riêng';
       tags.push(tag);
     }
     container.replaceChildren(...tags);
@@ -126,22 +136,32 @@ function renderSlideInspector() {
   const isEnabled = state.vision?.enabled !== false;
   const isMic = state.capturing && state.kind === 'mic';
   if (!isEnabled) {
-    statusText = 'Đã tắt quét';
-    statusClass = 'slide-badge badge-idle';
-    titleText = 'Đã tắt tính năng quét slide (tiết kiệm CPU). Bật lại ở mục "Quét OCR" góc trên để tiếp tục nhận diện slide.';
-    entities = [];
+    if (state.currentSlide?.title || (state.currentSlide?.entities && state.currentSlide.entities.length)) {
+      statusText = 'Tạm dừng quét';
+      statusClass = 'slide-badge badge-idle';
+      titleText = state.currentSlide.title || '(Không có tiêu đề slide)';
+      entities = state.currentSlide.entities || [];
+    } else {
+      statusText = 'Đã tắt quét';
+      statusClass = 'slide-badge badge-idle';
+      titleText = 'Đã tạm tắt quét OCR (tiết kiệm CPU). Bật lại ở mục "Quét OCR" góc trên để nhận diện slide.';
+      entities = [];
+    }
   } else if (isMic) {
     statusText = 'OCR cần nguồn hình ảnh';
     statusClass = 'slide-badge badge-mic';
     titleText = 'Chế độ Micro: OCR cần nguồn hình ảnh (Chia sẻ Tab hoặc Video).';
   } else if (!state.capturing) {
-    statusText = 'Chờ hình ảnh';
-    statusClass = 'slide-badge badge-idle';
-    if (state.currentSlide?.title) {
-      titleText = state.currentSlide.title;
+    if (state.currentSlide?.title || (state.currentSlide?.entities && state.currentSlide.entities.length)) {
+      statusText = 'Đã lưu slide';
+      statusClass = 'slide-badge badge-ready';
+      titleText = state.currentSlide.title || '(Không có tiêu đề slide)';
       entities = state.currentSlide.entities || [];
     } else {
+      statusText = 'Chờ hình ảnh';
+      statusClass = 'slide-badge badge-idle';
       titleText = 'Chưa phát hiện slide';
+      entities = [];
     }
   } else {
     const snap = state.currentSlide;
@@ -187,7 +207,7 @@ function renderSlideInspector() {
     setSafeText(titleEl, titleText);
   }
   if (entitiesEl) {
-    renderEntityTags(entitiesEl, entities, isMic);
+    renderEntityTags(entitiesEl, entities, isMic, titleText);
   }
 
   const scanIndicator = el('slide-scan-indicator');
@@ -228,10 +248,9 @@ function initSlideToggle() {
       if (state.vision) {
         state.vision.enabled = e.target.checked;
         if (!state.vision.enabled) {
-          state.currentSlide = null;
-          state.vision.status = 'DISABLED';
+          state.vision.status = 'PAUSED';
         } else {
-          state.vision.status = 'NO_FRAME';
+          state.vision.status = state.currentSlide ? (state.currentSlide.status || 'READY') : 'NO_FRAME';
         }
         renderSlideInspector();
       }
