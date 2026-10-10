@@ -1,6 +1,12 @@
 /* Live audio capture; every ASR input is only PCM already captured by the browser. */
 const el=id=>document.getElementById(id);
-const state={ready:false,capturing:false,stopping:false,processing:false,session:0,rows:[],history:[],queue:new LiveAudioCore.BoundedQueue(3),dropped:0,stream:null,ctx:null,node:null,sourceNode:null,segmenter:null,pip:null,model:'facebook/nllb-200-distilled-600M',localModel:'facebook/nllb-200-distilled-600M',geminiModel:'gemini-3.5-flash-lite',engineMode:'local',lastAsr:null,lastMt:null,lastLag:null};
+function generateSessionId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+}
+const state={ready:false,capturing:false,stopping:false,processing:false,session:generateSessionId(),captureStartTime:0,rows:[],history:[],queue:new LiveAudioCore.BoundedQueue(3),dropped:0,stream:null,ctx:null,node:null,sourceNode:null,segmenter:null,pip:null,model:'facebook/nllb-200-distilled-600M',localModel:'facebook/nllb-200-distilled-600M',geminiModel:'gemini-3.5-flash-lite',engineMode:'local',lastAsr:null,lastMt:null,lastLag:null};
 const labels={queued:'Chờ xử lý',asr:'Đang nhận dạng',mt:'Đang dịch',ok:'Đã dịch',silence:'Không nhận được lời nói',error:'Lỗi xử lý',skipped:'Bỏ qua để bắt kịp'};
 Object.assign(state,{activeRow:null,translating:0,mtQueue:[],pendingWords:[],pendingSince:0,asrDraft:'',stabilizer:new LiveAudioCore.StableWords(),captionInvalid:false,presenter:new LiveAudioCore.CaptionPresenter()});
 state.pair=new LiveAudioCore.TranscriptPair();
@@ -529,7 +535,7 @@ function initOcrModal() {
           })
         });
 
-        if (feedback) feedback.textContent = '✅ Đã lưu slide vĩnh viễn!';
+        if (feedback) feedback.textContent = '✅ Đã lưu slide!';
         setTimeout(closeModal, 600);
       } catch (err) {
         console.warn('Override error:', err);
@@ -757,6 +763,9 @@ function consumePendingWords(final = false) {
         isDraft: true,
         isFinal: false,
         isPolished: false,
+        sourceRevision: 1,
+        retryCount: 0,
+        lastAttemptedEn: '',
         words: [],
         asrMs: state.lastAsr,
         updatedAt: performance.now()
@@ -769,6 +778,7 @@ function consumePendingWords(final = false) {
       const chunk = state.pendingWords.splice(0, cutIdx + 1);
       state.activeRow.words.push(...chunk);
       state.activeRow.en = state.activeRow.words.map(w => w.text).join(' ').trim();
+      state.activeRow.sourceRevision = (state.activeRow.sourceRevision || 1) + 1;
       const last = state.activeRow.words[state.activeRow.words.length - 1];
       state.activeRow.endSec = last.end;
       state.activeRow.mediaEnd = last.mediaEnd;
@@ -784,6 +794,7 @@ function consumePendingWords(final = false) {
       const chunk = state.pendingWords.splice(0, state.pendingWords.length);
       state.activeRow.words.push(...chunk);
       state.activeRow.en = state.activeRow.words.map(w => w.text).join(' ').trim();
+      state.activeRow.sourceRevision = (state.activeRow.sourceRevision || 1) + 1;
       const last = state.activeRow.words[state.activeRow.words.length - 1];
       state.activeRow.endSec = last.end;
       state.activeRow.mediaEnd = last.mediaEnd;
@@ -826,6 +837,32 @@ function triggerRowTranslation(row) {
   executeRowTranslation(row);
 }
 
+function buildTranslationPayload(row, text, context, mode, provider, model, isRefine = false, initialTrans = '') {
+  const sourceEpoch = (state.vision && Number.isInteger(state.vision.sourceEpoch)) ? state.vision.sourceEpoch : 0;
+  const segStartMs = Math.round((row.startSec || 0) * 1000);
+  const segEndMs = Math.round((row.endSec || 0) * 1000);
+  const op = isRefine ? 'refine_gemini' : (provider === 'local' ? 'translate_local' : 'translate_gemini');
+  const rev = row.sourceRevision || 1;
+  const reqId = `${state.session}:${row.id}:${rev}:${op}`;
+
+  return {
+    session_id: String(state.session),
+    source_epoch: sourceEpoch,
+    segment_id: row.id,
+    source_revision: rev,
+    request_id: reqId,
+    operation: op,
+    provider: provider,
+    model: model,
+    mode: 'stream',
+    text: text,
+    previous_context: context,
+    initial_translation: initialTrans,
+    segment_audio_start_ms: segStartMs,
+    segment_audio_end_ms: segEndMs
+  };
+}
+
 async function executeRowTranslation(row) {
   if (!row || row.session !== state.session) return;
   const text = row.en;
@@ -835,37 +872,29 @@ async function executeRowTranslation(row) {
   row.isTranslating = true;
   row.needsRetranslate = false;
   row.status = 'mt';
+  row.lastAttemptedEn = text;
+  row.sourceRevision = row.sourceRevision || 1;
   render();
 
   const rawMode = el('engine-mode')?.value;
   const mode = ['local', 'hybrid', 'gemini'].includes(rawMode) ? rawMode : (state.engineMode || 'local');
   const context = state.rows.filter(r => r.id < row.id && r.en).slice(-2).map(r => r.en).join(' ').slice(-3000);
 
-  const sourceEpoch = (state.vision && Number.isInteger(state.vision.sourceEpoch)) ? state.vision.sourceEpoch : 0;
-  const segStartMs = Math.round((row.startSec || 0) * 1000);
-  const segEndMs = Math.round((row.endSec || 0) * 1000);
-
   try {
     // -------------------------------------------------------------
     // CHẾ ĐỘ 1: LOCAL (⚡ Local NLLB siêu tốc 150ms)
     // -------------------------------------------------------------
     if (mode === 'local') {
+      const payload = buildTranslationPayload(row, text, context, mode, 'local', state.localModel || 'facebook/nllb-200-distilled-600M', false, '');
       const translation = await requestJSON('/api/translate-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: text,
-          previous_context: context,
-          provider: 'local',
-          model: state.localModel || 'facebook/nllb-200-distilled-600M',
-          mode: 'stream',
-          source_epoch: sourceEpoch,
-          segment_audio_start_ms: segStartMs,
-          segment_audio_end_ms: segEndMs
-        })
+        body: JSON.stringify(payload)
       });
       if (row.session !== state.session) return;
+      if (translation.source_revision && row.sourceRevision && translation.source_revision < row.sourceRevision) return;
       row.lastTranslatedEn = text;
+      row.retryCount = 0;
       row.vi = translation.translated_text;
       row.status = 'ok';
       row.provider = 'local';
@@ -882,22 +911,16 @@ async function executeRowTranslation(row) {
     // CHẾ ĐỘ 2: HYBRID (🚀 Local trước 150ms + Gemini hiệu chỉnh bất đồng bộ ở nền)
     // -------------------------------------------------------------
     else if (mode === 'hybrid') {
+      const payload = buildTranslationPayload(row, text, context, mode, 'local', state.localModel || 'facebook/nllb-200-distilled-600M', false, '');
       const translation = await requestJSON('/api/translate-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: text,
-          previous_context: context,
-          provider: 'local',
-          model: state.localModel || 'facebook/nllb-200-distilled-600M',
-          mode: 'stream',
-          source_epoch: sourceEpoch,
-          segment_audio_start_ms: segStartMs,
-          segment_audio_end_ms: segEndMs
-        })
+        body: JSON.stringify(payload)
       });
       if (row.session !== state.session) return;
+      if (translation.source_revision && row.sourceRevision && translation.source_revision < row.sourceRevision) return;
       row.lastTranslatedEn = text;
+      row.retryCount = 0;
       row.vi = translation.translated_text;
       row.status = 'ok';
       row.provider = 'local';
@@ -919,22 +942,16 @@ async function executeRowTranslation(row) {
     // -------------------------------------------------------------
     else if (mode === 'gemini') {
       row.isDraft = false;
+      const payload = buildTranslationPayload(row, text, context, mode, 'gemini', state.geminiModel || 'gemini-3.5-flash-lite', false, '');
       const translation = await requestJSON('/api/translate-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: text,
-          previous_context: context,
-          provider: 'gemini',
-          model: state.geminiModel || 'gemini-3.5-flash-lite',
-          mode: 'stream',
-          source_epoch: sourceEpoch,
-          segment_audio_start_ms: segStartMs,
-          segment_audio_end_ms: segEndMs
-        })
+        body: JSON.stringify(payload)
       });
       if (row.session !== state.session) return;
+      if (translation.source_revision && row.sourceRevision && translation.source_revision < row.sourceRevision) return;
       row.lastTranslatedEn = text;
+      row.retryCount = 0;
       row.vi = translation.translated_text;
       row.status = 'ok';
       row.provider = 'gemini';
@@ -949,6 +966,7 @@ async function executeRowTranslation(row) {
     }
   } catch (err) {
     console.error('Translation error:', err);
+    row.retryCount = (row.retryCount || 0) + 1;
     if (!row.vi) {
       row.status = 'error';
       row.message = err.message;
@@ -963,8 +981,12 @@ async function executeRowTranslation(row) {
       triggerRowTranslation(nextRow);
     }
 
-    if (row.en !== row.lastTranslatedEn || row.needsRetranslate) {
+    const textChanged = (row.en !== row.lastAttemptedEn && row.en.trim().length > 0);
+    if (textChanged) {
+      row.retryCount = 0;
       triggerRowTranslation(row);
+    } else if (row.needsRetranslate && row.retryCount <= 2) {
+      setTimeout(() => triggerRowTranslation(row), 600 * row.retryCount);
     } else {
       finishStatus();
       render();
@@ -977,25 +999,14 @@ async function polishRowWithGemini(row) {
   row.isPolished = true;
   try {
     const context = state.rows.filter(r => r.id < row.id && r.en).slice(-2).map(r => r.en).join(' ').slice(-3000);
-    const sourceEpoch = (state.vision && Number.isInteger(state.vision.sourceEpoch)) ? state.vision.sourceEpoch : 0;
-    const segStartMs = Math.round((row.startSec || 0) * 1000);
-    const segEndMs = Math.round((row.endSec || 0) * 1000);
+    const payload = buildTranslationPayload(row, row.en, context, 'gemini', 'gemini', state.geminiModel || 'gemini-3.5-flash-lite', true, row.vi || '');
     const polished = await requestJSON('/api/translate-test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: row.en,
-        initial_translation: row.vi || '',
-        previous_context: context,
-        provider: 'gemini',
-        model: state.geminiModel || 'gemini-3.5-flash-lite',
-        mode: 'stream',
-        source_epoch: sourceEpoch,
-        segment_audio_start_ms: segStartMs,
-        segment_audio_end_ms: segEndMs
-      })
+      body: JSON.stringify(payload)
     });
     if (row.session !== state.session) return;
+    if (polished.source_revision && row.sourceRevision && polished.source_revision < row.sourceRevision) return;
     row.vi = polished.translated_text;
     row.isDraft = false;
     row.polishedMs = polished.latency_ms;
@@ -1073,7 +1084,9 @@ async function sampleAndSendFrame() {
   const session = state.session;
   const epoch = state.vision.sourceEpoch;
   const frameId = `f_${++state.vision.frameIdCounter}`;
-  const capturedClientMs = performance.now();
+  const now = performance.now();
+  const captureStart = state.captureStartTime || now;
+  const capturedClientMs = Math.max(0, Math.round(now - captureStart));
   renderSlideInspector();
 
   try {
@@ -1260,7 +1273,7 @@ async function startCapture(kind,captureWindow=window){
   if(state.capturing)await stopCapture();
   state.processing=false;state.translating=0;state.mtQueue=[];state.queue.items=[];
   timelineCards.clear();
-  error('');const session=++state.session;state.rows=[];state.pair=new LiveAudioCore.TranscriptPair();state.presenter=new LiveAudioCore.CaptionPresenter();state.asrDraft='';state.pendingWords=[];state.history=[];state.dropped=0;state.activeRow=null;state.lastAsr=null;state.lastMt=null;state.lastLag=null;renderVideoCaption();
+  error('');const session=generateSessionId();state.session=session;state.captureStartTime=performance.now();state.rows=[];state.pair=new LiveAudioCore.TranscriptPair();state.presenter=new LiveAudioCore.CaptionPresenter();state.asrDraft='';state.pendingWords=[];state.history=[];state.dropped=0;state.activeRow=null;state.lastAsr=null;state.lastMt=null;state.lastLag=null;renderVideoCaption();
   state.stabilizer=new LiveAudioCore.StableWords();state.presenter=new LiveAudioCore.CaptionPresenter();state.pair=new LiveAudioCore.TranscriptPair();state.pendingWords=[];state.asrDraft='';state.captionInvalid=false;
   
   if (state.vision) {

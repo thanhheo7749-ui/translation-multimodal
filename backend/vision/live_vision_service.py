@@ -42,6 +42,7 @@ class SlideSnapshot:
     available_server_ms: float = 0.0
     server_ocr_ms: float = 0.0
     is_stale: bool = False
+    scene_generation: int = 1
     created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -59,6 +60,7 @@ class SlideSnapshot:
             "available_server_ms": self.available_server_ms,
             "server_ocr_ms": self.server_ocr_ms,
             "is_stale": self.is_stale,
+            "scene_generation": self.scene_generation,
         }
 
 
@@ -70,6 +72,7 @@ class OCRJob:
     frame_id: str
     frame: np.ndarray
     captured_client_ms: float
+    scene_generation: int = 1
     created_at: float = field(default_factory=time.time)
 
 
@@ -196,12 +199,14 @@ class SessionVisionState:
         self.slide_counter: int = 0
         self.slide_revision: int = 0
         self.last_ocr_hash: str = ""
-        self.slides_registry: Dict[int, Dict[str, Any]] = {}
+        self.scene_generation: int = 1
+        self.slides_registry: Dict[Any, Dict[str, Any]] = {}
         self.lock = threading.Lock()
 
     def reset_epoch(self, new_epoch: int, clear_registry: bool = False):
         """Resets detector and visual memory when source or timeline changes."""
         self.source_epoch = new_epoch
+        self.scene_generation += 1
         self.detector.reset()
         self.candidate_frame = None
         self.candidate_frame_id = ""
@@ -218,7 +223,7 @@ class SessionVisionState:
         self.visual_cache = VisualMemoryCache()
         if clear_registry:
             self.slides_registry.clear()
-        logger.info("Session %s reset to source_epoch %s", self.session_id, new_epoch)
+        logger.info("Session %s reset to source_epoch %s (gen %s)", self.session_id, new_epoch, self.scene_generation)
 
     def ingest_frame(
         self,
@@ -235,17 +240,23 @@ class SessionVisionState:
             (action, payload)
             action in: "DISPATCH_OCR", "STABILIZING", "UNCHANGED", "EMPTY"
         """
-        self.last_frame_received_time = time.time()
-
-        # Step 1: Check epoch
-        if source_epoch != self.source_epoch:
+        # Step 1: Check epoch strictly monotonic
+        if source_epoch < self.source_epoch:
+            # Outdated epoch packet from previous stream/seek, ignore completely without updating epoch or heartbeat!
+            logger.debug("Discarding frame %s from older epoch %s (current: %s)", frame_id, source_epoch, self.source_epoch)
+            return "UNCHANGED", None
+        elif source_epoch > self.source_epoch:
             self.reset_epoch(source_epoch)
+
+        self.last_frame_received_time = time.time()
 
         # Step 2: Check for blank/solid color screen (talking head or black screen)
         if frame is None or frame.size == 0:
             return "EMPTY", self._make_empty_payload(frame_id, captured_client_ms)
 
         if float(np.std(frame)) < 2.0:
+            if self.state != "EMPTY":
+                self.scene_generation += 1
             self.state = "EMPTY"
             self.last_stable_frame = frame
             self.candidate_frame = None
@@ -260,7 +271,8 @@ class SessionVisionState:
                 entities=[],
                 content_hash="",
                 captured_client_ms=captured_client_ms,
-                available_server_ms=time.time() * 1000
+                available_server_ms=time.time() * 1000,
+                scene_generation=self.scene_generation
             )
             self.current_snapshot = snap
             self.history.append(snap)
@@ -302,6 +314,7 @@ class SessionVisionState:
                     "frame": frame,
                     "frame_id": frame_id,
                     "captured_client_ms": captured_client_ms,
+                    "scene_generation": self.scene_generation,
                     "elapsed_sec": round(elapsed_sec, 3)
                 }
             return "STABILIZING", {
@@ -321,7 +334,8 @@ class SessionVisionState:
                 return "DISPATCH_OCR", {
                     "frame": frame,
                     "frame_id": frame_id,
-                    "captured_client_ms": captured_client_ms
+                    "captured_client_ms": captured_client_ms,
+                    "scene_generation": self.scene_generation
                 }
             self.candidate_frame = frame
             self.candidate_frame_id = frame_id
@@ -335,11 +349,11 @@ class SessionVisionState:
                 "status": "stabilizing"
             }
 
-        if self.state in ("READY", "EMPTY", "IDLE"):
-            mean_diff, corr = compare_frames(self.last_stable_frame, frame)
+        if self.state in ("READY", "EMPTY", "IDLE", "ERROR"):
+            mean_diff, corr = compare_frames(self.last_stable_frame, frame) if self.last_stable_frame is not None else (255.0, 0.0)
             is_changed = (corr < 0.88) or (mean_diff > 28.0)
 
-            if not is_changed:
+            if not is_changed and self.state != "ERROR":
                 # Identical frame or minor webcam motion: deduplicate!
                 snap_dict = self.current_snapshot.to_dict() if self.current_snapshot else {
                     "status": self.state,
@@ -347,18 +361,21 @@ class SessionVisionState:
                     "source_epoch": self.source_epoch,
                     "frame_id": frame_id,
                     "slide_id": self.slide_counter,
-                    "content_hash": self.last_ocr_hash
+                    "content_hash": self.last_ocr_hash,
+                    "scene_generation": self.scene_generation
                 }
                 return "UNCHANGED", snap_dict
 
             # Change detected! Enter stabilization phase
+            self.scene_generation += 1
             if stabilization_delay_sec <= 0.0:
                 self.last_stable_frame = frame
                 self.state = "OCR_PENDING"
                 return "DISPATCH_OCR", {
                     "frame": frame,
                     "frame_id": frame_id,
-                    "captured_client_ms": captured_client_ms
+                    "captured_client_ms": captured_client_ms,
+                    "scene_generation": self.scene_generation
                 }
             self.candidate_frame = frame
             self.candidate_frame_id = frame_id
@@ -372,10 +389,8 @@ class SessionVisionState:
                 "status": "stabilizing"
             }
 
-
         if self.state == "OCR_PENDING":
             # OCR is actively processing previous candidate.
-            # If incoming frame is similar to the dispatched stable frame, deduplicate:
             mean_diff, corr = compare_frames(self.last_stable_frame, frame) if self.last_stable_frame is not None else (255.0, 0.0)
             if corr >= 0.88 and mean_diff <= 28.0:
                 snap_dict = self.current_snapshot.to_dict() if self.current_snapshot else {
@@ -383,11 +398,13 @@ class SessionVisionState:
                     "session_id": self.session_id,
                     "source_epoch": self.source_epoch,
                     "frame_id": frame_id,
-                    "slide_id": self.slide_counter
+                    "slide_id": self.slide_counter,
+                    "scene_generation": self.scene_generation
                 }
                 return "UNCHANGED", snap_dict
 
             # Brand new change occurred while previous OCR was pending
+            self.scene_generation += 1
             self.candidate_frame = frame
             self.candidate_frame_id = frame_id
             self.candidate_captured_ms = captured_client_ms
@@ -449,6 +466,7 @@ class SessionVisionState:
     ):
         """Allows user / human-in-the-loop to edit and correct OCR title and entities."""
         with self.lock:
+            self.scene_generation += 1
             formatted_entities = []
             for e in entities:
                 if isinstance(e, str):
@@ -472,44 +490,54 @@ class SessionVisionState:
                     self.slide_counter += 1
                     target_id = self.slide_counter
 
-            if self.current_snapshot is None or (self.current_snapshot.slide_id == target_id):
-                if self.current_snapshot is None:
-                    self.current_snapshot = SlideSnapshot(
-                        session_id=self.session_id,
-                        source_epoch=self.source_epoch,
-                        frame_id="user_override",
-                        slide_id=target_id,
-                        slide_revision=1,
-                        status="READY",
-                        title=title.strip(),
-                        entities=formatted_entities,
-                        content_hash=compute_content_hash(formatted_entities),
-                        captured_client_ms=time.time() * 1000,
-                        available_server_ms=time.time() * 1000
-                    )
-                    self.history.append(self.current_snapshot)
-                else:
-                    self.current_snapshot.title = title.strip()
-                    self.current_snapshot.entities = formatted_entities
-                    self.current_snapshot.status = "READY"
-                    self.current_snapshot.content_hash = compute_content_hash(formatted_entities)
-
-            # Store in slides_registry for full session history
+            orig_captured_ms = (
+                self.current_snapshot.captured_client_ms
+                if (self.current_snapshot and self.current_snapshot.slide_id == target_id)
+                else (time.time() * 1000)
+            )
+            orig_frame_id = (
+                self.current_snapshot.frame_id
+                if (self.current_snapshot and self.current_snapshot.slide_id == target_id)
+                else "user_override"
+            )
             current_rev = (
-                self.current_snapshot.slide_revision
+                (self.current_snapshot.slide_revision + 1)
                 if (self.current_snapshot and self.current_snapshot.slide_id == target_id)
                 else 1
             )
-            self.slides_registry[target_id] = {
+
+            new_snapshot = SlideSnapshot(
+                session_id=self.session_id,
+                source_epoch=self.source_epoch,
+                frame_id=f"{orig_frame_id}_edit_r{current_rev}",
+                slide_id=target_id,
+                slide_revision=current_rev,
+                status="READY",
+                title=title.strip(),
+                entities=formatted_entities,
+                content_hash=compute_content_hash(formatted_entities),
+                captured_client_ms=orig_captured_ms,
+                available_server_ms=time.time() * 1000,
+                scene_generation=self.scene_generation
+            )
+            self.current_snapshot = new_snapshot
+            self.history.append(new_snapshot)
+
+            # Store in slides_registry for full session history (keyed per epoch & slide)
+            entry = {
+                "source_epoch": self.source_epoch,
                 "slide_id": target_id,
                 "slide_revision": current_rev,
                 "title": title.strip(),
                 "entities": formatted_entities,
                 "status": "READY",
                 "content_hash": compute_content_hash(formatted_entities),
-                "captured_client_ms": time.time() * 1000,
+                "captured_client_ms": orig_captured_ms,
+                "edited_at_ms": time.time() * 1000,
                 "is_user_edited": True
             }
+            self.slides_registry[(self.source_epoch, target_id)] = entry
+            self.slides_registry[target_id] = entry
 
             self.state = "READY"
             self.last_frame_received_time = time.time()
@@ -519,12 +547,22 @@ class SessionVisionState:
                 title=title.strip(),
                 entities=v_entities
             )
-            logger.info("Session %s context overridden by user for slide %s: title='%s', %d entities", self.session_id, target_id, title, len(formatted_entities))
+            logger.info("Session %s context overridden by user for slide %s: title='%s', %d entities (gen %s)", self.session_id, target_id, title, len(formatted_entities), self.scene_generation)
 
-    def get_all_slides(self) -> List[Dict[str, Any]]:
+    def get_all_slides(self, source_epoch: Optional[int] = None) -> List[Dict[str, Any]]:
         """Returns all detected/saved slides in this session."""
         with self.lock:
-            return sorted(list(self.slides_registry.values()), key=lambda s: s.get("slide_id", 0))
+            seen = set()
+            result = []
+            for s in self.slides_registry.values():
+                k = (s.get("source_epoch", self.source_epoch), s.get("slide_id", 0))
+                if k in seen:
+                    continue
+                seen.add(k)
+                if source_epoch is not None and s.get("source_epoch", self.source_epoch) != source_epoch:
+                    continue
+                result.append(s)
+            return sorted(result, key=lambda s: (s.get("source_epoch", 0), s.get("slide_id", 0)))
 
     def select_visual_context(
         self,
@@ -586,26 +624,33 @@ class SessionVisionState:
                 "matched_entities": []
             }
 
-        # Rule e: Future frame rejection and historical fallback
+        # Rule e: Future frame rejection and historical fallback with EMPTY boundary
         target_snapshot: Optional[SlideSnapshot] = None
         if segment_end_ms is not None and segment_end_ms > 0:
-            if self.current_snapshot and self.current_snapshot.captured_client_ms <= segment_end_ms:
-                target_snapshot = self.current_snapshot
-            else:
-                for snap in reversed(self.history):
-                    if snap.captured_client_ms <= segment_end_ms and snap.status == "READY":
-                        target_snapshot = snap
-                        break
-                if target_snapshot is None:
-                    return {
-                        "available": False,
-                        "used": False,
-                        "visual_context_id": "",
-                        "reason": "future_frame_rejected",
-                        "slide_title": "",
-                        "relevant_entities": [],
-                        "matched_entities": []
-                    }
+            candidate_snaps = []
+            if self.current_snapshot:
+                candidate_snaps.append(self.current_snapshot)
+            for snap in reversed(self.history):
+                if snap not in candidate_snaps:
+                    candidate_snaps.append(snap)
+
+            active_snap = None
+            for snap in candidate_snaps:
+                if snap.captured_client_ms <= segment_end_ms:
+                    active_snap = snap
+                    break
+
+            if active_snap is None:
+                return {
+                    "available": False,
+                    "used": False,
+                    "visual_context_id": "",
+                    "reason": "future_frame_rejected",
+                    "slide_title": "",
+                    "relevant_entities": [],
+                    "matched_entities": []
+                }
+            target_snapshot = active_snap
         else:
             target_snapshot = self.current_snapshot
 
@@ -742,8 +787,11 @@ class LiveVisionService:
     def reset_session(self, session_id: str, new_epoch: Optional[int] = None) -> int:
         session = self.get_session(session_id)
         with session.lock:
-            next_epoch = (session.source_epoch + 1) if new_epoch is None else new_epoch
-            session.reset_epoch(next_epoch)
+            if new_epoch is not None:
+                next_epoch = max(session.source_epoch + 1, new_epoch)
+            else:
+                next_epoch = session.source_epoch + 1
+            session.reset_epoch(next_epoch, clear_registry=True)
             return next_epoch
 
     def process_frame(
@@ -775,7 +823,8 @@ class LiveVisionService:
                 source_epoch=source_epoch,
                 frame_id=frame_id,
                 frame=frame,
-                captured_client_ms=captured_client_ms
+                captured_client_ms=captured_client_ms,
+                scene_generation=payload.get("scene_generation", getattr(session, "scene_generation", 1)) if payload else getattr(session, "scene_generation", 1)
             )
             self._dispatch_job(job)
             return {
@@ -841,7 +890,8 @@ class LiveVisionService:
                 source_epoch=source_epoch,
                 frame_id=frame_id,
                 frame=frame,
-                captured_client_ms=captured_client_ms
+                captured_client_ms=captured_client_ms,
+                scene_generation=payload.get("scene_generation", getattr(session, "scene_generation", 1)) if payload else getattr(session, "scene_generation", 1)
             )
             self._execute_ocr_job(job)
             return session.get_snapshot()
@@ -902,15 +952,22 @@ class LiveVisionService:
             if session_id not in self._sessions:
                 return []
             session = self._sessions[session_id]
-        return session.get_all_slides()
+        return session.get_all_slides(source_epoch=source_epoch)
 
     def _dispatch_job(self, job: OCRJob):
         """Puts candidate into worker queue; drops older waiting candidate if full."""
         with self._queue_lock:
             if self._job_queue.full():
                 try:
-                    _ = self._job_queue.get_nowait()
+                    dropped_job = self._job_queue.get_nowait()
                     self._job_queue.task_done()
+                    if dropped_job and dropped_job.session_id != job.session_id:
+                        with self._sessions_lock:
+                            dropped_sess = self._sessions.get(dropped_job.session_id)
+                        if dropped_sess:
+                            with dropped_sess.lock:
+                                if dropped_sess.state == "OCR_PENDING":
+                                    dropped_sess.state = "IDLE" if dropped_sess.current_snapshot is None else dropped_sess.current_snapshot.status
                 except (queue.Empty, ValueError):
                     pass
             try:
@@ -935,8 +992,11 @@ class LiveVisionService:
     def _execute_ocr_job(self, job: OCRJob):
         session = self.get_session(job.session_id, job.source_epoch)
         with session.lock:
-            if session.source_epoch != job.source_epoch:
-                logger.info("Discarding outdated OCR job (epoch %s vs %s)", job.source_epoch, session.source_epoch)
+            if session.source_epoch != job.source_epoch or job.scene_generation != session.scene_generation:
+                logger.info(
+                    "Discarding outdated OCR job for session %s (epoch %s vs %s, gen %s vs %s)",
+                    job.session_id, job.source_epoch, session.source_epoch, job.scene_generation, session.scene_generation
+                )
                 return
 
         # Lazy init RapidOCR engine
@@ -962,7 +1022,11 @@ class LiveVisionService:
             status_error = True
 
         with session.lock:
-            if session.source_epoch != job.source_epoch:
+            if session.source_epoch != job.source_epoch or job.scene_generation != session.scene_generation:
+                logger.info(
+                    "Discarding completed OCR result for session %s (epoch %s vs %s, gen %s vs %s)",
+                    job.session_id, job.source_epoch, session.source_epoch, job.scene_generation, session.scene_generation
+                )
                 return
 
             if status_error:
@@ -978,10 +1042,14 @@ class LiveVisionService:
                     content_hash="",
                     captured_client_ms=job.captured_client_ms,
                     available_server_ms=time.time() * 1000,
-                    server_ocr_ms=round(ocr_latency_ms, 2)
+                    server_ocr_ms=round(ocr_latency_ms, 2),
+                    scene_generation=job.scene_generation
                 )
                 session.current_snapshot = snapshot
                 session.state = "ERROR"
+                session.last_stable_frame = None  # Reset so subsequent frames can re-stabilize and recover
+                session.candidate_frame = None
+                session.candidate_first_seen_time = 0.0
                 session.history.append(snapshot)
                 return
 
@@ -1029,7 +1097,7 @@ class LiveVisionService:
                     slide_revision = 1
 
             if status == "READY":
-                existing = session.slides_registry.get(slide_id)
+                existing = session.slides_registry.get((session.source_epoch, slide_id)) or session.slides_registry.get(slide_id)
                 if existing and existing.get("is_user_edited"):
                     title = existing.get("title", title)
                     user_texts = {e["text"].lower() for e in existing.get("entities", [])}
@@ -1039,7 +1107,8 @@ class LiveVisionService:
                             merged.append(ent)
                     entities = merged
 
-                session.slides_registry[slide_id] = {
+                entry = {
+                    "source_epoch": session.source_epoch,
                     "slide_id": slide_id,
                     "slide_revision": slide_revision,
                     "title": title,
@@ -1049,6 +1118,8 @@ class LiveVisionService:
                     "captured_client_ms": job.captured_client_ms,
                     "is_user_edited": bool(existing.get("is_user_edited", False)) if existing else False
                 }
+                session.slides_registry[(session.source_epoch, slide_id)] = entry
+                session.slides_registry[slide_id] = entry
 
             session.slide_revision = slide_revision
             snapshot = SlideSnapshot(
@@ -1063,7 +1134,8 @@ class LiveVisionService:
                 content_hash=c_hash,
                 captured_client_ms=job.captured_client_ms,
                 available_server_ms=time.time() * 1000,
-                server_ocr_ms=round(ocr_latency_ms, 2)
+                server_ocr_ms=round(ocr_latency_ms, 2),
+                scene_generation=job.scene_generation
             )
 
             session.current_snapshot = snapshot

@@ -11,6 +11,7 @@ import re
 import json
 import time
 import logging
+import math
 import subprocess
 import threading
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -473,10 +474,19 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 except (ValueError, TypeError):
                     source_epoch = 0
 
+            source_revision = payload.get("source_revision", 1)
+            if not isinstance(source_revision, int):
+                try:
+                    source_revision = int(source_revision)
+                except (ValueError, TypeError):
+                    source_revision = 1
+
             seg_start_ms = payload.get("segment_audio_start_ms")
             if seg_start_ms is not None:
                 try:
                     seg_start_ms = float(seg_start_ms)
+                    if not math.isfinite(seg_start_ms):
+                        seg_start_ms = None
                 except (ValueError, TypeError):
                     seg_start_ms = None
 
@@ -484,8 +494,15 @@ class StudioHandler(SimpleHTTPRequestHandler):
             if seg_end_ms is not None:
                 try:
                     seg_end_ms = float(seg_end_ms)
+                    if not math.isfinite(seg_end_ms):
+                        seg_end_ms = None
                 except (ValueError, TypeError):
                     seg_end_ms = None
+
+            if seg_start_ms is not None and seg_end_ms is not None and seg_start_ms > seg_end_ms:
+                # Ordering mismatch: start must be <= end
+                seg_start_ms = None
+                seg_end_ms = None
 
             client_context_id = payload.get("visual_context_id", "")
             if not isinstance(client_context_id, str):
@@ -537,7 +554,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 return
             if not request_id:
                 if session_id and segment_id is not None:
-                    request_id = f"{session_id}:{segment_id}:{operation}"
+                    request_id = f"{session_id}:{segment_id}:{source_revision}:{operation}"
                 else:
                     request_id = "web-live" if url_path == "/api/translate-test" else f"req-{int(time.time()*1000)}"
 
@@ -553,6 +570,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 previous_context=used_context,
                 session_id=session_id,
                 segment_id=segment_id,
+                source_revision=source_revision,
                 initial_translation=used_initial_trans,
                 slide_title=slide_title,
                 relevant_entities=relevant_entities,
@@ -563,6 +581,11 @@ class StudioHandler(SimpleHTTPRequestHandler):
                 matched_entities=v_context.get("matched_entities", []) if v_context else []
             )
             result = service.translate(req)
+            result.session_id = session_id
+            result.segment_id = segment_id
+            result.source_epoch = source_epoch
+            result.source_revision = source_revision
+            result.operation = operation
             save_attempt(result, service.model)
 
             # Assign and enforce visual context metadata in response
