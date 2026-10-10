@@ -1,15 +1,43 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from experiments import compare_local_translation as benchmark
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_direct_gemini_uses_current_adapter_without_saving_key(self):
+        from backend.translation.live_service import TranslationOutcome
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'experiments').mkdir()
+            (root / 'experiments/local_comparison_cases.json').write_text(json.dumps({
+                'source': 'fixture', 'cases': [{'id': 'one', 'text': 'Hello.'}]}))
+            with patch.object(benchmark, 'ROOT', root), patch.dict(os.environ, {
+                    'TRANSLATION_PROVIDER': 'local', 'GEMINI_API_KEY': 'fixture-private-key'}), patch(
+                    'backend.translation.live_service.LiveTranslationService.translate',
+                    return_value=TranslationOutcome('ok', 'gemini', translated_text='Xin chào')) as translate, patch(
+                    'sys.argv', ['test', '--providers', 'gemini', '--gemini-direct', '--interval', '0', '--repeats', '1']), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(benchmark.main(), 0)
+            raw = next(root.glob('experiments/local_comparison/*/results.json')).read_text(encoding='utf-8')
+            self.assertNotIn('fixture-private-key', raw)
+            self.assertEqual(translate.call_count, 2)  # separate warmup + one measured case
+            self.assertEqual(json.loads(raw)['models']['gemini']['transport'], 'same Gemini adapter, direct HTTPS')
+
+    def test_http_failure_keeps_safe_error_code(self):
+        error = urllib.error.HTTPError('http://localhost', 502, 'Bad gateway', {},
+            io.BytesIO(b'{"error_code":"quota_exceeded", "message":"private detail"}'))
+        with patch('urllib.request.urlopen', side_effect=error):
+            with self.assertRaises(benchmark.ProviderFailure) as caught:
+                benchmark.request_json('http://localhost')
+        self.assertEqual(str(caught.exception), 'quota_exceeded')
+
     def test_failed_requests_remain_in_denominator(self):
         rows = [dict(provider='local', status='ok', latency_ms=100),
                 dict(provider='local', status='error'),
@@ -18,6 +46,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(result['local']['attempts'], 2)
         self.assertEqual(result['local']['successes'], 1)
         self.assertEqual(result['local']['median_ms'], 100)
+        self.assertEqual(result['local']['p95_ms'], 100)
         self.assertIsNone(result['gemini']['median_ms'])
 
     def test_missing_model_is_not_a_fake_local_translation(self):

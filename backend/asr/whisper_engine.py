@@ -16,6 +16,19 @@ if sys.platform == "win32":
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
+if sys.platform != "win32":
+    # Auto-discover nvidia cuda library paths if installed in site-packages
+    nvidia_dirs = []
+    for pkg_dir in ("/opt/conda/lib/python3.11/site-packages/nvidia", "/usr/local/lib/python3.11/dist-packages/nvidia"):
+        if os.path.isdir(pkg_dir):
+            for sub in os.listdir(pkg_dir):
+                lib_path = os.path.join(pkg_dir, sub, "lib")
+                if os.path.isdir(lib_path):
+                    nvidia_dirs.append(lib_path)
+    if nvidia_dirs:
+        current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+        os.environ["LD_LIBRARY_PATH"] = ":".join(nvidia_dirs) + (":" + current_ld if current_ld else "")
+
 from typing import List, Dict, Any, Optional
 from faster_whisper import WhisperModel
 
@@ -31,18 +44,40 @@ class LiveWhisperEngine:
         return cls._instance
 
     def __init__(self, model_size: str = "base.en"):
-        print(f"[*] Đang khởi tạo LiveWhisperEngine (Model: {model_size}, CPU int8, 4 threads)...")
+        model_size = os.getenv("WHISPER_MODEL", model_size)
+        pref_device = os.getenv("WHISPER_DEVICE", "auto").strip().lower()
+
+        device = "cpu"
+        compute_type = "int8"
+        if pref_device in ("cuda", "auto"):
+            try:
+                import ctranslate2
+                if ctranslate2.get_cuda_device_count() > 0:
+                    device = "cuda"
+                    compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "float16")
+            except Exception as e:
+                device = "cpu"
+                compute_type = "int8"
+        if pref_device == "cpu":
+            device = "cpu"
+            compute_type = "int8"
+
+        self.device = device
+        self.compute_type = compute_type
+        self.beam_size = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
+
+        print(f"[*] Đang khởi tạo LiveWhisperEngine (Model: {model_size}, Device: {device}, Type: {compute_type}, Beam: {self.beam_size})...")
         t0 = time.perf_counter()
         self.model = WhisperModel(
             model_size,
-            device="cpu",
-            compute_type="int8",
+            device=device,
+            compute_type=compute_type,
             cpu_threads=4,
-            local_files_only=True
+            local_files_only=os.getenv("ALLOW_MODEL_DOWNLOAD", "0") != "1"
         )
         self._inference_lock = threading.Lock()
         self.init_time_ms = (time.perf_counter() - t0) * 1000
-        print(f"[✓] LiveWhisperEngine sẵn sàng trong {self.init_time_ms:.1f}ms")
+        print(f"[✓] LiveWhisperEngine sẵn sàng trong {self.init_time_ms:.1f}ms (Device: {device})")
 
     def decode_audio_slice(self, video_path: str, start_sec: float = 0.0, duration_sec: float = 10.0, sample_rate: int = 16000) -> np.ndarray:
         """Decode a specific time slice from a video or audio file into 16kHz float32 mono array."""
@@ -132,12 +167,16 @@ class LiveWhisperEngine:
         audio = np.frombuffer(pcm_bytes, dtype="<i2").astype(np.float32) / 32768.0
         started = time.perf_counter()
         with self._inference_lock:
-            segments, _ = self.model.transcribe(audio, beam_size=5, temperature=0, language="en",
+            segments, _ = self.model.transcribe(audio, beam_size=getattr(self, 'beam_size', 1), temperature=0, language="en",
                 word_timestamps=True, vad_filter=True, condition_on_previous_text=False)
             rows = [{"text": s.text.strip(), "start": float(s.start), "end": float(s.end),
                 "words": [{"text": w.word.strip(), "start": float(w.start), "end": float(w.end)} for w in (getattr(s, 'words', None) or [])]}
                 for s in segments if s.text.strip()]
+        device = getattr(self, 'device', 'cpu')
+        compute_type = getattr(self, 'compute_type', 'int8')
+        beam_size = getattr(self, 'beam_size', 1)
         return {"text": " ".join(r["text"] for r in rows), "segments": rows,
             "words": [w for r in rows for w in r["words"]],
             "asr_latency_ms": round((time.perf_counter()-started)*1000, 1),
-            "audio_duration_sec": len(audio)/16000, "model": "base.en CPU int8"}
+            "audio_duration_sec": len(audio)/16000,
+            "model": f"base.en {device} {compute_type} (beam {beam_size})"}

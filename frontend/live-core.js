@@ -43,7 +43,7 @@
   // Overlapping snapshots contain only audio received so far. Replacing a queued
   // snapshot does not discard its audio if the newer window still contains it.
   class RollingAudio {
-    constructor({rate=16000,windowSec=12,hopSec=1.5,pauseSec=.8,threshold=.006}={}){
+    constructor({rate=16000,windowSec=12,hopSec=2.5,pauseSec=.8,threshold=.006}={}){
       Object.assign(this,{rate,windowSec,hopSec,pauseSec,threshold});
       this.total=0;this.parts=[];this.size=0;this.lastEmit=0;this.silence=0;this.active=false;this.receivedAt=0;
     }
@@ -54,7 +54,7 @@
       if(!this.active)return null;
       const final=this.silence>=this.pauseSec*this.rate;
       if(final){this.active=false;return this.snapshot(true);}
-      if(this.total-this.lastEmit>=this.hopSec*this.rate&&this.size>=this.rate*2.5)return this.snapshot(false);
+      if(this.total-this.lastEmit>=this.hopSec*this.rate&&this.size>=this.rate*1.0)return this.snapshot(false);
       return null;
     }
     snapshot(final){
@@ -94,6 +94,12 @@
   class CaptionPresenter {
     constructor(){this.current=null;this.since=0;this.lastId=0;}
     select(rows,mediaTime,now){
+      if(this.current){
+        const liveMatch=rows.find(r=>r.id===this.current.id);
+        if(liveMatch&&liveMatch.vi&&liveMatch.vi!==this.current.vi){
+          this.current=liveMatch;
+        }
+      }
       const candidate=rows.filter(r=>r.status==='ok'&&r.vi&&r.id>this.lastId&&Number.isFinite(r.mediaStart)&&mediaTime>=r.mediaStart&&Number.isFinite(r.displayedAt)&&now-r.displayedAt<6000).sort((a,b)=>b.id-a.id)[0];
       // Hold a readable caption briefly, then advance directly to the latest
       // result. Never replay an older response arriving out of order.
@@ -104,6 +110,76 @@
       return this.current;
     }
   }
-  const api={Segmenter,BoundedQueue,RollingAudio,StableWords,captionAt,CaptionPresenter};
+  const INCOMPLETE_CONNECTORS = new Set([
+    'a', 'an', 'the',
+    'as', 'of', 'to', 'for', 'with', 'in', 'on', 'at', 'by', 'from', 'into', 'about', 'between', 'through',
+    'and', 'or', 'but', 'so', 'because', 'although', 'if', 'while', 'that', 'which', 'who', 'whom', 'whose',
+    'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did',
+    'will', 'would', 'shall', 'should', 'can', 'could', 'may', 'might', 'must',
+    'not', 'just', 'more', 'less', 'very', 'too', 'than'
+  ]);
+
+  function findSentenceBoundary(words, final = false) {
+    if (!words || !words.length) return -1;
+    for (let i = 0; i < words.length; i++) {
+      const text = words[i].text ? words[i].text.trim() : '';
+      const clean = text.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+      const isDangling = INCOMPLETE_CONNECTORS.has(clean);
+
+      // Terminal punctuation (. ! ?)
+      if (/[.?!]$/.test(text)) {
+        return i;
+      }
+
+      // If this word is dangling (e.g. "as", "and", "the"), NEVER cut here!
+      if (isDangling) {
+        continue;
+      }
+
+      // Check acoustic gap between word i and word i+1
+      if (i < words.length - 1 && words[i + 1].start !== undefined && words[i].end !== undefined) {
+        const gap = words[i + 1].start - words[i].end;
+        if (gap >= 0.55 && (i + 1) >= 5) {
+          return i;
+        }
+      }
+
+      // Clause boundary with comma / semicolon after 12+ words
+      if ((i + 1) >= 12 && /[,;:]$/.test(text)) {
+        return i;
+      }
+
+      // Hard cap to avoid runaway sentences
+      if ((i + 1) >= 22) {
+        return i;
+      }
+    }
+
+    if (final) {
+      const lastText = words[words.length - 1]?.text || '';
+      const lastClean = lastText.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+      if (!INCOMPLETE_CONNECTORS.has(lastClean) && words.length >= 4) {
+        return words.length - 1;
+      }
+    }
+
+    return -1;
+  }
+  function phraseReady(words,final=false,ageMs=0){
+    if(!words||!words.length)return false;
+    if(final)return true;
+    if(ageMs>=2000)return true;
+    return words.some(w=>/[.?!]$/.test(w.text?w.text.trim():''));
+  }
+  class TranscriptPair {
+    constructor(){this.current=null;this.since=0;}
+    select(rows,now){
+      const next=rows.filter(r=>r.status==='ok'&&r.vi&&r.id>(this.current?.id||0)).sort((a,b)=>b.id-a.id)[0];
+      if(next&&(!this.current||now-this.since>=900)){this.current=next;this.since=now;}
+      return this.current;
+    }
+  }
+  const api={Segmenter,BoundedQueue,RollingAudio,StableWords,captionAt,CaptionPresenter,TranscriptPair,phraseReady,findSentenceBoundary};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.LiveAudioCore=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

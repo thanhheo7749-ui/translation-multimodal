@@ -1,0 +1,41 @@
+{
+  "device": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+  "cuda_available": true,
+  "vram_start_mb": 1573,
+  "vram_end_mb": 3118,
+  "iterations_per_condition": 3,
+  "total_audio_samples": 18,
+  "condition_A_baseline": {
+    "p50_total_ms": 559.81,
+    "p95_total_ms": 828.55,
+    "mean_total_ms": 563.19,
+    "p95_asr_ms": 341.05,
+    "p95_mt_ms": 529.27,
+    "dropped_audio_count": 0
+  },
+  "condition_B_concurrent_ocr": {
+    "p50_total_ms": 613.83,
+    "p95_total_ms": 702.9,
+    "mean_total_ms": 589.92,
+    "p95_asr_ms": 269.33,
+    "p95_mt_ms": 516.3,
+    "dropped_audio_count": 0
+  },
+  "gate_evaluation": {
+    "metric": "p95_audio_to_first_local_overhead",
+    "p95_A_ms": 828.55,
+    "p95_B_ms": 702.9,
+    "measured_overhead_ms": -125.65,
+    "allowed_max_overhead_ms": 200.0,
+    "dropped_audio_B": 0,
+    "gate_passed": true,
+    "verdict": "PASSED"
+  },
+  "context_selector_condition_E": {
+    "available": true,
+    "used": true,
+    "visual_context_id": "ctx_bench_session_refine_1_1_1",
+    "slide_title": "40YearsofPersonal Computing",
+    "matched_entities": []
+  }
+}
